@@ -94,9 +94,8 @@ async function start() {
     const existingGuides = await guideProfiles.findMany({ page: 1, limit: 3 });
     if (existingGuides.length === 0) {
       console.log('🌱 Database empty — running seed...');
-      require('./seed');
-      // Give seed time then continue
-      await new Promise(r => setTimeout(r, 3000));
+      const { seed } = require('./seed');
+      await seed();
     } else {
       console.log(`✅ Database has ${existingGuides.length} guides — skipping seed`);
     }

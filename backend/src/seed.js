@@ -50,7 +50,7 @@ async function seed() {
   if (existingGuides.length >= 3) {
     console.log('✅ Database already seeded with', existingGuides.length, 'guides. Skipping.\n');
     console.log('   To reseed: delete data/*.json files (JSON mode) or clear tables (PG mode)\n');
-    process.exit(0);
+    return;
   }
 
   const passwordHash = await bcrypt.hash('Guide@1234', 12);
@@ -205,7 +205,15 @@ async function seed() {
   console.log('   GUIDE 2  → priya@guide.com | Guide@1234');
   console.log('   TRAVELER → rohan@traveller.com | Travel@1234');
   console.log('\n   All guides are visible on the map with real coordinates! 🗺️\n');
-  process.exit(0);
 }
 
-seed().catch(err => { console.error('Seed error:', err); process.exit(1); });
+module.exports = { seed };
+
+if (require.main === module) {
+  seed()
+    .then(() => process.exit(0))
+    .catch(err => {
+      console.error('Seed error:', err);
+      process.exit(1);
+    });
+}
