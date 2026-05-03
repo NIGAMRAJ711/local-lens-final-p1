@@ -1,9 +1,16 @@
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+// Auto-detect API base URL
+// In dev: Vite proxy handles /api → localhost:5001
+// In production: Use VITE_API_URL or same origin
+const API_BASE = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL + '/api'
+  : '/api';
+
+const SOCKET_URL = import.meta.env.VITE_API_URL || '';
+
+export { SOCKET_URL };
 
 class ApiClient {
-  constructor() {
-    this.base = API_BASE;
-  }
+  constructor() { this.base = API_BASE; }
 
   getHeaders(isFormData = false) {
     const token = localStorage.getItem('accessToken');
@@ -19,21 +26,18 @@ class ApiClient {
       headers: this.getHeaders(isFormData),
       credentials: 'include',
     };
-    if (body) {
-      options.body = isFormData ? body : JSON.stringify(body);
-    }
+    if (body) options.body = isFormData ? body : JSON.stringify(body);
 
     try {
       const res = await fetch(`${this.base}${path}`, options);
-      
-      // Handle token expiry
+
       if (res.status === 401) {
         const refreshed = await this.refreshToken();
         if (refreshed) {
           options.headers = this.getHeaders(isFormData);
           const retryRes = await fetch(`${this.base}${path}`, options);
           if (!retryRes.ok) {
-            const err = await retryRes.json();
+            const err = await retryRes.json().catch(() => ({ error: 'Request failed' }));
             throw new Error(err.error || 'Request failed');
           }
           return retryRes.json();
@@ -44,10 +48,13 @@ class ApiClient {
         }
       }
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Request failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       return data;
     } catch (err) {
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        throw new Error('Cannot connect to server. Please check your connection.');
+      }
       throw err;
     }
   }
@@ -66,9 +73,7 @@ class ApiClient {
       localStorage.setItem('accessToken', data.accessToken);
       localStorage.setItem('refreshToken', data.refreshToken);
       return true;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   }
 
   get(path) { return this.request('GET', path); }
@@ -88,8 +93,8 @@ export const api = new ApiClient();
 
 // Auth
 export const authApi = {
-  register: (data) => api.post('/auth/register', data),
-  login: (data) => api.post('/auth/login', data),
+  register: (d) => api.post('/auth/register', d),
+  login: (d) => api.post('/auth/login', d),
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
 };
@@ -97,9 +102,9 @@ export const authApi = {
 // Users
 export const userApi = {
   getMe: () => api.get('/users/me'),
-  updateMe: (data) => api.patch('/users/me', data),
+  updateMe: (d) => api.patch('/users/me', d),
   switchRole: (role) => api.patch('/users/me/role', { role }),
-  updateGuideProfile: (data) => api.patch('/users/me/guide-profile', data),
+  updateGuideProfile: (d) => api.patch('/users/me/guide-profile', d),
   getWallet: () => api.get('/users/wallet'),
 };
 
@@ -107,16 +112,16 @@ export const userApi = {
 export const guideApi = {
   search: (params) => api.get('/guides?' + new URLSearchParams(params).toString()),
   getById: (id) => api.get(`/guides/${id}`),
-  register: (data) => api.post('/guides/register', data),
+  register: (d) => api.post('/guides/register', d),
   updateAvailability: (isAvailable) => api.patch('/guides/availability', { isAvailable }),
   updateLocation: (lat, lng) => api.patch('/guides/location', { latitude: lat, longitude: lng }),
-  addHiddenGem: (data) => api.post('/guides/hidden-gems', data),
+  addHiddenGem: (d) => api.post('/guides/hidden-gems', d),
   getDashboardStats: () => api.get('/guides/dashboard/stats'),
 };
 
 // Bookings
 export const bookingApi = {
-  create: (data) => api.post('/bookings', data),
+  create: (d) => api.post('/bookings', d),
   getMyBookings: (params) => api.get('/bookings/my?' + new URLSearchParams(params).toString()),
   updateStatus: (id, status) => api.patch(`/bookings/${id}/status`, { status }),
   complete: (id) => api.patch(`/bookings/${id}/complete`),
@@ -125,7 +130,7 @@ export const bookingApi = {
 // Reels
 export const reelApi = {
   getFeed: (params) => api.get('/reels?' + new URLSearchParams(params).toString()),
-  upload: (data) => api.post('/reels', data),
+  upload: (d) => api.post('/reels', d),
   like: (id) => api.post(`/reels/${id}/like`),
   view: (id) => api.post(`/reels/${id}/view`),
 };
@@ -134,7 +139,7 @@ export const reelApi = {
 export const groupTourApi = {
   list: (params) => api.get('/group-tours?' + new URLSearchParams(params).toString()),
   getById: (id) => api.get(`/group-tours/${id}`),
-  create: (data) => api.post('/group-tours', data),
+  create: (d) => api.post('/group-tours', d),
   join: (id) => api.post(`/group-tours/${id}/join`),
   myJoined: () => api.get('/group-tours/my/joined'),
 };
@@ -147,18 +152,20 @@ export const mapApi = {
 
 // Reviews
 export const reviewApi = {
-  submit: (data) => api.post('/reviews', data),
+  submit: (d) => api.post('/reviews', d),
 };
 
 // Chat
 export const chatApi = {
   getMessages: (bookingId) => api.get(`/chat/${bookingId}`),
+  send: (bookingId, content, receiverId) => api.post(`/chat/${bookingId}`, { content, receiverId }),
 };
 
 // Notifications
 export const notificationApi = {
   getAll: () => api.get('/notifications'),
   markRead: (id) => api.patch(`/notifications/${id}/read`),
+  markAllRead: () => api.patch('/notifications/mark-all-read'),
 };
 
 // Friends

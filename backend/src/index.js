@@ -3,28 +3,14 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 
-const authRoutes      = require('./routes/auth.routes');
-const userRoutes      = require('./routes/user.routes');
-const guideRoutes     = require('./routes/guide.routes');
-const bookingRoutes   = require('./routes/booking.routes');
-const reelRoutes      = require('./routes/reel.routes');
-const mapRoutes       = require('./routes/map.routes');
-const groupTourRoutes = require('./routes/groupTour.routes');
-const paymentRoutes   = require('./routes/payment.routes');
-const chatRoutes      = require('./routes/chat.routes');
-const reviewRoutes    = require('./routes/review.routes');
-const notifRoutes     = require('./routes/notification.routes');
-const sosRoutes       = require('./routes/sos.routes');
-const friendsRoutes   = require('./routes/friends.routes');
-const uploadRoutes    = require('./routes/upload.routes');
-
+const { initSchema, guideProfiles, USE_PG } = require('./db');
 const { setupSocketIO } = require('./services/socket.service');
-const { errorHandler }  = require('./middleware/error.middleware');
+const { errorHandler } = require('./middleware/error.middleware');
 
 const app = express();
 const httpServer = createServer(app);
@@ -35,11 +21,14 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   'http://localhost:4173',
-  'http://localhost:5001',
+  /\.render\.com$/,
+  /\.onrender\.com$/,
+  /\.railway\.app$/,
+  /\.vercel\.app$/,
 ];
 
 const io = new Server(httpServer, {
-  cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true },
+  cors: { origin: allowedOrigins, methods: ['GET','POST'], credentials: true },
 });
 setupSocketIO(io);
 app.set('io', io);
@@ -50,55 +39,78 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Serve uploaded files statically
+// Serve uploaded files
 const uploadsDir = path.join(__dirname, '../uploads');
-const fs = require('fs');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300 });
-app.use('/api', limiter);
-
-// ── Routes ──────────────────────────────────────────────────────────
-app.use('/api/auth',        authRoutes);
-app.use('/api/users',       userRoutes);
-app.use('/api/guides',      guideRoutes);
-app.use('/api/bookings',    bookingRoutes);
-app.use('/api/reels',       reelRoutes);
-app.use('/api/map',         mapRoutes);
-app.use('/api/group-tours', groupTourRoutes);
-app.use('/api/payments',    paymentRoutes);
-app.use('/api/chat',        chatRoutes);
-app.use('/api/reviews',     reviewRoutes);
-app.use('/api/notifications', notifRoutes);
-app.use('/api/sos',         sosRoutes);
-app.use('/api/friends',     friendsRoutes);
-app.use('/api/upload',      uploadRoutes);
+// Routes
+app.use('/api/auth',         require('./routes/auth.routes'));
+app.use('/api/users',        require('./routes/user.routes'));
+app.use('/api/guides',       require('./routes/guide.routes'));
+app.use('/api/bookings',     require('./routes/booking.routes'));
+app.use('/api/reels',        require('./routes/reel.routes'));
+app.use('/api/map',          require('./routes/map.routes'));
+app.use('/api/group-tours',  require('./routes/groupTour.routes'));
+app.use('/api/payments',     require('./routes/payment.routes'));
+app.use('/api/chat',         require('./routes/chat.routes'));
+app.use('/api/reviews',      require('./routes/review.routes'));
+app.use('/api/notifications',require('./routes/notification.routes'));
+app.use('/api/sos',          require('./routes/sos.routes'));
+app.use('/api/friends',      require('./routes/friends.routes'));
+app.use('/api/upload',       require('./routes/upload.routes'));
 
 app.get('/health', (req, res) => res.json({
-  status: 'ok', app: 'LocalLens API',
-  db: 'File-based JSON (persistent)', version: '2.0.0',
+  status: 'ok', app: 'LocalLens API', version: '2.0.0',
+  database: USE_PG ? 'PostgreSQL' : 'JSON files',
+  frontend: FRONTEND_URL,
 }));
 
-// Serve React frontend in production
+// Serve built frontend in production
 const distPath = path.join(__dirname, '../../frontend/dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api') && !req.path.startsWith('/socket.io')) {
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/socket.io') && !req.path.startsWith('/uploads')) {
       res.sendFile(path.join(distPath, 'index.html'));
     }
   });
 }
 
-app.use('*', (req, res) => res.status(404).json({ error: 'Route not found' }));
+app.use('*', (req, res) => res.status(404).json({ error: 'Not found' }));
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5001;
-httpServer.listen(PORT, () => {
-  console.log(`\n🚀 LocalLens API on port ${PORT}`);
-  console.log(`📦 Database: JSON files in ./data/ (fully persistent)`);
-  console.log(`🌍 Frontend: ${FRONTEND_URL}`);
-  if (fs.existsSync(distPath)) console.log(`🖥️  Serving built frontend from: ${distPath}`);
-  console.log(`✅ All systems ready!\n`);
-});
+
+async function start() {
+  // Init PostgreSQL schema if using PG
+  if (USE_PG) {
+    console.log('🐘 Initializing PostgreSQL schema...');
+    await initSchema();
+  }
+
+  // Auto-seed if database is empty
+  try {
+    const existingGuides = await guideProfiles.findMany({ page: 1, limit: 3 });
+    if (existingGuides.length === 0) {
+      console.log('🌱 Database empty — running seed...');
+      require('./seed');
+      // Give seed time then continue
+      await new Promise(r => setTimeout(r, 3000));
+    } else {
+      console.log(`✅ Database has ${existingGuides.length} guides — skipping seed`);
+    }
+  } catch(e) {
+    console.log('⚠️  Seed check failed (will continue):', e.message);
+  }
+
+  httpServer.listen(PORT, () => {
+    console.log(`\n🚀 LocalLens API on port ${PORT}`);
+    console.log(`📦 Database: ${USE_PG ? 'PostgreSQL ✅' : 'JSON files (set DATABASE_URL for PostgreSQL)'}`);
+    console.log(`🌍 CORS: ${FRONTEND_URL}`);
+    if (fs.existsSync(distPath)) console.log(`🖥️  Serving frontend from: ${distPath}`);
+    console.log(`\n✅ Ready at http://localhost:${PORT}\n`);
+  });
+}
+
+start().catch(err => { console.error('Fatal startup error:', err); process.exit(1); });

@@ -1,0 +1,54 @@
+# render.yaml — Deploy LocalLens on Render.com (Free)
+# 1. Push this folder to GitHub
+# 2. Go to render.com → New → Blueprint
+# 3. Connect your GitHub repo
+# 4. Render auto-reads this file and deploys everything
+
+services:
+  # Backend API
+  - type: web
+    name: locallens-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install --legacy-peer-deps
+    startCommand: node src/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: FRONTEND_URL
+        fromService:
+          name: locallens-web
+          type: web
+          property: host
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: locallens-db
+          property: connectionString
+      - key: PLATFORM_FEE_PERCENT
+        value: 10
+
+  # Frontend
+  - type: web
+    name: locallens-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: locallens-api
+          type: web
+          property: host
+
+databases:
+  - name: locallens-db
+    databaseName: locallens
+    user: locallens
+    plan: free
