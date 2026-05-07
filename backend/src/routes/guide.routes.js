@@ -1,6 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const { guideProfiles, reviews, reels, hiddenGems, walletTransactions } = require('../db');
+
+// Fallback city coordinates for major Indian cities
+const CITY_COORDS = {
+  'mumbai': [19.0760, 72.8777], 'delhi': [28.7041, 77.1025], 'bangalore': [12.9716, 77.5946],
+  'bengaluru': [12.9716, 77.5946], 'hyderabad': [17.3850, 78.4867], 'chennai': [13.0827, 80.2707],
+  'kolkata': [22.5726, 88.3639], 'pune': [18.5204, 73.8567], 'jaipur': [26.9124, 75.7873],
+  'lucknow': [26.8467, 80.9462], 'kochi': [9.9312, 76.2673], 'goa': [15.2993, 74.1240],
+  'varanasi': [25.3176, 82.9739], 'agra': [27.1767, 78.0081], 'amritsar': [31.6340, 74.8723],
+  'mysore': [12.2958, 76.6394], 'mysuru': [12.2958, 76.6394], 'udaipur': [24.5854, 73.7125],
+  'rishikesh': [30.0869, 78.2676], 'shimla': [31.1048, 77.1734], 'manali': [32.2432, 77.1892],
+  'davangere': [14.4644, 75.9218], 'hubli': [15.3647, 75.1240], 'coimbatore': [11.0168, 76.9558],
+};
+
+function getCityCoords(city) {
+  const key = city?.toLowerCase().trim();
+  return CITY_COORDS[key] || null;
+}
 const { protect } = require('../middleware/error.middleware');
 
 router.get('/', async (req, res) => {
@@ -49,6 +66,32 @@ router.post('/register', protect, async (req, res) => {
     const { bio, city, country, languages, expertiseTags, isPhotographer, hourlyRate, halfDayRate, fullDayRate, photographyRate } = req.body;
     if (!bio || !city || !hourlyRate) return res.status(400).json({ error: 'bio, city and hourlyRate are required' });
     const guide = await guideProfiles.create({ userId:req.user.id, bio, city, country:country||'India', languages:languages||[], expertiseTags:expertiseTags||[], isPhotographer:!!isPhotographer, hourlyRate:parseFloat(hourlyRate), halfDayRate:parseFloat(halfDayRate)||parseFloat(hourlyRate)*3, fullDayRate:parseFloat(fullDayRate)||parseFloat(hourlyRate)*6, photographyRate:photographyRate?parseFloat(photographyRate):null });
+    // Auto-geocode city to get coordinates for map
+    try {
+      const https = require('https');
+      const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city+','+( country||'India'))}&limit=1`;
+      // Use node-fetch or https
+      const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args)).catch(() => null);
+      const geoRes = await fetch(geocodeUrl).catch(() => null);
+      if (geoRes && geoRes.ok) {
+        const geoData = await geoRes.json();
+        if (geoData[0]) {
+          const lat = parseFloat(geoData[0].lat) + (Math.random()-0.5)*0.02;
+          const lng = parseFloat(geoData[0].lon) + (Math.random()-0.5)*0.02;
+          await guideProfiles.update(guide.id, { latitude: lat, longitude: lng });
+          guide.latitude = lat; guide.longitude = lng;
+        }
+      }
+    } catch(geoErr) {
+      // Use hardcoded coords as fallback
+      const coords = getCityCoords(city);
+      if (coords) {
+        const lat = coords[0] + (Math.random()-0.5)*0.02;
+        const lng = coords[1] + (Math.random()-0.5)*0.02;
+        await guideProfiles.update(guide.id, { latitude: lat, longitude: lng }).catch(()=>{});
+        guide.latitude = lat; guide.longitude = lng;
+      }
+    }
     res.status(201).json({ guide });
   } catch (err) {
     if (err.message?.includes('already exists')) return res.status(409).json({ error: 'Guide profile already exists' });

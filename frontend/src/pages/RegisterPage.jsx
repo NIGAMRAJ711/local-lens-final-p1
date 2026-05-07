@@ -1,26 +1,28 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { Globe, Eye, EyeOff } from 'lucide-react';
 
 export default function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
   const [form, setForm] = useState({ fullName: '', email: '', phone: '', password: '', role: 'TRAVELER' });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    if (form.password.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (!form.phone) { toast.error('Phone number is required'); return; }
+    if (form.password.length < 8) { toast.error('Password must be at least 8 characters'); return; }
     setLoading(true);
     try {
       await register(form);
+      toast.success('Account created! Welcome to LocalLens 🌍');
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Registration failed');
+      toast.error(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -38,32 +40,32 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-            <input type="text" className="input-field" placeholder="Your full name" value={form.fullName}
-              onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} required />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+            <input type="text" className="input-field" placeholder="Your full name"
+              value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} required />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input type="email" className="input-field" placeholder="you@example.com" value={form.email}
-              onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+            <input type="email" className="input-field" placeholder="you@example.com"
+              value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone (optional)</label>
-            <input type="tel" className="input-field" placeholder="+91 9876543210" value={form.phone}
-              onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
+            <input type="tel" className="input-field" placeholder="+91 9876543210"
+              value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} required />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
             <div className="relative">
-              <input type={showPwd ? 'text' : 'password'} className="input-field pr-10" placeholder="Min 8 characters" value={form.password}
+              <input type={showPwd ? 'text' : 'password'} className="input-field pr-10"
+                placeholder="Min 8 characters" value={form.password}
                 onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required />
-              <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <button type="button" onClick={() => setShowPwd(!showPwd)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                 {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
@@ -76,14 +78,9 @@ export default function RegisterPage() {
                 { value: 'TRAVELER', label: '🧳 Traveller', desc: 'Explore & book guides' },
                 { value: 'GUIDE', label: '🗺️ Guide', desc: 'Offer local tours' },
               ].map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
+                <button key={opt.value} type="button"
                   onClick={() => setForm(f => ({ ...f, role: opt.value }))}
-                  className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                    form.role === opt.value ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
+                  className={`p-3 rounded-xl border-2 text-left transition ${form.role === opt.value ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'}`}>
                   <div className="font-medium text-sm">{opt.label}</div>
                   <div className="text-xs text-gray-500 mt-0.5">{opt.desc}</div>
                 </button>

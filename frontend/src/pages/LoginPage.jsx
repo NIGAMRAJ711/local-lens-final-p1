@@ -1,26 +1,27 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { Globe, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
     try {
       const user = await login(form.email, form.password);
+      toast.success(`Welcome back, ${user.fullName?.split(' ')[0]}! 👋`);
       if (user.role === 'GUIDE') navigate('/guide-dashboard');
       else navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Login failed. Please check your credentials.');
+      toast.error(err.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
@@ -38,45 +39,27 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
-              {error}
-            </div>
-          )}
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input
-              type="email"
-              className="input-field"
-              placeholder="you@example.com"
-              value={form.email}
-              onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-              required
-            />
+            <input type="email" className="input-field" placeholder="you@example.com"
+              value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <div className="relative">
-              <input
-                type={showPwd ? 'text' : 'password'}
-                className="input-field pr-10"
-                placeholder="••••••••"
-                value={form.password}
-                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                required
-              />
-              <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <input type={showPwd ? 'text' : 'password'} className="input-field pr-10"
+                placeholder="••••••••" value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required />
+              <button type="button" onClick={() => setShowPwd(!showPwd)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                 {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
 
           <div className="flex justify-end">
-            <Link to="/forgot-password" className="text-sm text-green-600 hover:underline">
-              Forgot password?
-            </Link>
+            <Link to="/forgot-password" className="text-sm text-green-600 hover:underline">Forgot password?</Link>
           </div>
 
           <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-base">
@@ -86,14 +69,13 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-gray-600 mt-6">
           Don't have an account?{' '}
-          <Link to="/register" className="text-green-600 font-medium hover:underline">
-            Sign up
-          </Link>
+          <Link to="/register" className="text-green-600 font-medium hover:underline">Sign up</Link>
         </p>
 
-        {/* Demo credentials */}
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-500">
-          <p className="font-medium text-gray-600 mb-1">Demo: Register a new account above to get started</p>
+        <div className="mt-4 p-3 bg-gray-50 rounded-xl text-xs text-gray-500">
+          <p className="font-medium text-gray-600 mb-1">Demo accounts:</p>
+          <p>Guide: arjun@guide.com / Guide@1234</p>
+          <p>Traveller: rohan@traveller.com / Travel@1234</p>
         </div>
       </div>
     </div>

@@ -49,7 +49,11 @@ async function initSchema() {
   if (!USE_PG) return;
   const sql = `
     CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,phone TEXT,password_hash TEXT NOT NULL,full_name TEXT NOT NULL,avatar_url TEXT,role TEXT DEFAULT 'TRAVELER',is_active BOOLEAN DEFAULT true,is_email_verified BOOLEAN DEFAULT false,referral_code TEXT,referred_by TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS guide_profiles(id TEXT PRIMARY KEY,user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,bio TEXT DEFAULT '',city TEXT DEFAULT '',country TEXT DEFAULT 'India',languages TEXT[] DEFAULT '{}',expertise_tags TEXT[] DEFAULT '{}',is_photographer BOOLEAN DEFAULT false,is_available BOOLEAN DEFAULT false,hourly_rate NUMERIC DEFAULT 500,half_day_rate NUMERIC DEFAULT 2000,full_day_rate NUMERIC DEFAULT 3500,photography_rate NUMERIC,total_bookings INT DEFAULT 0,total_earnings NUMERIC DEFAULT 0,avg_rating NUMERIC DEFAULT 0,total_reviews INT DEFAULT 0,latitude NUMERIC,longitude NUMERIC,wallet_balance NUMERIC DEFAULT 0,verification_status TEXT DEFAULT 'UNVERIFIED',created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS guide_profiles(id TEXT PRIMARY KEY,user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,bio TEXT DEFAULT '',city TEXT DEFAULT '',country TEXT DEFAULT 'India',languages TEXT[] DEFAULT '{}',expertise_tags TEXT[] DEFAULT '{}',is_photographer BOOLEAN DEFAULT false,is_available BOOLEAN DEFAULT false,hourly_rate NUMERIC DEFAULT 500,half_day_rate NUMERIC DEFAULT 2000,full_day_rate NUMERIC DEFAULT 3500,photography_rate NUMERIC,total_bookings INT DEFAULT 0,total_earnings NUMERIC DEFAULT 0,avg_rating NUMERIC DEFAULT 0,total_reviews INT DEFAULT 0,latitude NUMERIC,longitude NUMERIC,wallet_balance NUMERIC DEFAULT 0,verification_status TEXT DEFAULT 'UNVERIFIED',cover_image TEXT,is_blacklisted BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS follows(id TEXT PRIMARY KEY,follower_id TEXT REFERENCES users(id) ON DELETE CASCADE,following_id TEXT REFERENCES users(id) ON DELETE CASCADE,status TEXT DEFAULT 'PENDING',created_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(follower_id,following_id));
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS cover_image TEXT;
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS is_blacklisted BOOLEAN DEFAULT false;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blacklisted BOOLEAN DEFAULT false;
     CREATE TABLE IF NOT EXISTS traveler_profiles(id TEXT PRIMARY KEY,user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,interests TEXT[] DEFAULT '{}',home_city TEXT,total_tours_booked INT DEFAULT 0,loyalty_points INT DEFAULT 0,wallet_balance NUMERIC DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES users(id),traveler_id TEXT REFERENCES users(id),booking_type TEXT DEFAULT 'PRIVATE',duration TEXT DEFAULT 'ONE_HOUR',status TEXT DEFAULT 'PENDING',date TEXT,start_time TEXT,meetup_location TEXT DEFAULT '',special_requests TEXT DEFAULT '',base_price NUMERIC DEFAULT 0,platform_fee NUMERIC DEFAULT 0,total_amount NUMERIC DEFAULT 0,payment_status TEXT DEFAULT 'PENDING',escrow_released BOOLEAN DEFAULT false,tour_completed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS group_tours(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id),title TEXT NOT NULL,description TEXT DEFAULT '',city TEXT DEFAULT '',date TEXT,start_time TEXT,duration TEXT DEFAULT '3 hours',max_members INT DEFAULT 6,price_per_person NUMERIC DEFAULT 0,meetup_point TEXT DEFAULT '',meetup_lat NUMERIC,meetup_lng NUMERIC,itinerary JSONB DEFAULT '[]',category TEXT[] DEFAULT '{}',cover_image TEXT,is_active BOOLEAN DEFAULT true,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
@@ -104,7 +108,7 @@ const users = {
 };
 
 // ── GUIDE PROFILES ──
-const _gp = (r,u) => r?{id:r.id,userId:r.user_id||r.userId,bio:r.bio,city:r.city||r.city,country:r.country,languages:r.languages||[],expertiseTags:r.expertise_tags||r.expertiseTags||[],isPhotographer:r.is_photographer||r.isPhotographer,isAvailable:r.is_available||r.isAvailable,hourlyRate:parseFloat(r.hourly_rate||r.hourlyRate)||0,halfDayRate:parseFloat(r.half_day_rate||r.halfDayRate)||0,fullDayRate:parseFloat(r.full_day_rate||r.fullDayRate)||0,photographyRate:r.photography_rate||r.photographyRate?parseFloat(r.photography_rate||r.photographyRate):null,totalBookings:r.total_bookings||r.totalBookings||0,totalEarnings:parseFloat(r.total_earnings||r.totalEarnings)||0,avgRating:parseFloat(r.avg_rating||r.avgRating)||0,totalReviews:r.total_reviews||r.totalReviews||0,latitude:r.latitude?parseFloat(r.latitude):null,longitude:r.longitude?parseFloat(r.longitude):null,walletBalance:parseFloat(r.wallet_balance||r.walletBalance)||0,verificationStatus:r.verification_status||r.verificationStatus,createdAt:r.created_at||r.createdAt,user:u||null}:null;
+const _gp = (r,u) => r?{id:r.id,userId:r.user_id||r.userId,bio:r.bio,city:r.city||r.city,country:r.country,languages:r.languages||[],expertiseTags:r.expertise_tags||r.expertiseTags||[],isPhotographer:r.is_photographer||r.isPhotographer,isAvailable:r.is_available||r.isAvailable,hourlyRate:parseFloat(r.hourly_rate||r.hourlyRate)||0,halfDayRate:parseFloat(r.half_day_rate||r.halfDayRate)||0,fullDayRate:parseFloat(r.full_day_rate||r.fullDayRate)||0,photographyRate:r.photography_rate||r.photographyRate?parseFloat(r.photography_rate||r.photographyRate):null,totalBookings:r.total_bookings||r.totalBookings||0,totalEarnings:parseFloat(r.total_earnings||r.totalEarnings)||0,avgRating:parseFloat(r.avg_rating||r.avgRating)||0,totalReviews:r.total_reviews||r.totalReviews||0,latitude:r.latitude?parseFloat(r.latitude):null,longitude:r.longitude?parseFloat(r.longitude):null,walletBalance:parseFloat(r.wallet_balance||r.walletBalance)||0,verificationStatus:r.verification_status||r.verificationStatus,coverImage:r.cover_image||r.coverImage||null,isBlacklisted:r.is_blacklisted||r.isBlacklisted||false,createdAt:r.created_at||r.createdAt,user:u||null}:null;
 const guideProfiles = {
   async _eu(g) {
     if(!g)return null;
@@ -163,7 +167,7 @@ const guideProfiles = {
   },
   async update(id,upd) {
     if(USE_PG){
-      const map={bio:'bio',city:'city',country:'country',languages:'languages',expertiseTags:'expertise_tags',isPhotographer:'is_photographer',isAvailable:'is_available',hourlyRate:'hourly_rate',halfDayRate:'half_day_rate',fullDayRate:'full_day_rate',photographyRate:'photography_rate',totalBookings:'total_bookings',totalEarnings:'total_earnings',avgRating:'avg_rating',totalReviews:'total_reviews',latitude:'latitude',longitude:'longitude',walletBalance:'wallet_balance'};
+      const map={bio:'bio',city:'city',country:'country',languages:'languages',expertiseTags:'expertise_tags',isPhotographer:'is_photographer',isAvailable:'is_available',hourlyRate:'hourly_rate',halfDayRate:'half_day_rate',fullDayRate:'full_day_rate',photographyRate:'photography_rate',totalBookings:'total_bookings',totalEarnings:'total_earnings',avgRating:'avg_rating',totalReviews:'total_reviews',latitude:'latitude',longitude:'longitude',walletBalance:'wallet_balance',coverImage:'cover_image',isBlacklisted:'is_blacklisted'};
       const f=[],v=[]; let i=1;
       for(const[k,val]of Object.entries(upd)){const c=map[k];if(!c)continue;f.push(`${c}=$${i++}`);v.push(val);}
       if(!f.length)return this.findById(id);
@@ -437,4 +441,80 @@ const sosAlerts = {
   },
 };
 
-module.exports = { users, guideProfiles, travelerProfiles, bookings, groupTours, groupTourMembers, reels, messages, reviews, notifications, hiddenGems, walletTransactions, sosAlerts, initSchema, USE_PG };
+module.exports = { users, guideProfiles, travelerProfiles, bookings, groupTours, groupTourMembers, reels, messages, reviews, notifications, hiddenGems, walletTransactions, sosAlerts, initSchema, USE_PG, follows: null }; // follows added below
+
+
+// ── FOLLOWS (Friend Requests) ──
+const follows = {
+  async follow(followerId, followingId) {
+    if (followerId === followingId) throw new Error('Cannot follow yourself');
+    if (USE_PG) {
+      await query(`CREATE TABLE IF NOT EXISTS follows(id TEXT PRIMARY KEY, follower_id TEXT REFERENCES users(id) ON DELETE CASCADE, following_id TEXT REFERENCES users(id) ON DELETE CASCADE, status TEXT DEFAULT 'PENDING', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(follower_id,following_id))`);
+      const ex = await query('SELECT id,status FROM follows WHERE follower_id=$1 AND following_id=$2',[followerId,followingId]);
+      if (ex.length) { if(ex[0].status==='ACCEPTED') throw new Error('Already following'); throw new Error('Request already sent'); }
+      const id = require('crypto').randomUUID();
+      await query('INSERT INTO follows(id,follower_id,following_id,status) VALUES($1,$2,$3,$4)',[id,followerId,followingId,'PENDING']);
+      return { id, followerId, followingId, status:'PENDING' };
+    }
+    const s = loadStore('follows');
+    if (s.find(f=>f.followerId===followerId&&f.followingId===followingId)) throw new Error('Request already sent');
+    const f = { id:uuid(), followerId, followingId, status:'PENDING', createdAt:now() };
+    s.push(f); saveStore('follows',s); return f;
+  },
+  async accept(id, userId) {
+    if (USE_PG) {
+      await query(`CREATE TABLE IF NOT EXISTS follows(id TEXT PRIMARY KEY, follower_id TEXT REFERENCES users(id) ON DELETE CASCADE, following_id TEXT REFERENCES users(id) ON DELETE CASCADE, status TEXT DEFAULT 'PENDING', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(follower_id,following_id))`);
+      await query('UPDATE follows SET status=$1 WHERE id=$2 AND following_id=$3',['ACCEPTED',id,userId]);
+      return { id, status:'ACCEPTED' };
+    }
+    const s = loadStore('follows'); const idx=s.findIndex(f=>f.id===id&&f.followingId===userId);
+    if(idx!==-1){s[idx].status='ACCEPTED';saveStore('follows',s);} return s[idx];
+  },
+  async unfollow(followerId, followingId) {
+    if (USE_PG) {
+      await query(`CREATE TABLE IF NOT EXISTS follows(id TEXT PRIMARY KEY, follower_id TEXT REFERENCES users(id) ON DELETE CASCADE, following_id TEXT REFERENCES users(id) ON DELETE CASCADE, status TEXT DEFAULT 'PENDING', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(follower_id,following_id))`);
+      await query('DELETE FROM follows WHERE follower_id=$1 AND following_id=$2',[followerId,followingId]);
+      return true;
+    }
+    saveStore('follows', loadStore('follows').filter(f=>!(f.followerId===followerId&&f.followingId===followingId)));
+    return true;
+  },
+  async getFollowers(userId) {
+    if (USE_PG) {
+      await query(`CREATE TABLE IF NOT EXISTS follows(id TEXT PRIMARY KEY, follower_id TEXT REFERENCES users(id) ON DELETE CASCADE, following_id TEXT REFERENCES users(id) ON DELETE CASCADE, status TEXT DEFAULT 'PENDING', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(follower_id,following_id))`);
+      const rows = await query('SELECT f.*,u.full_name,u.avatar_url FROM follows f JOIN users u ON u.id=f.follower_id WHERE f.following_id=$1 AND f.status=$2',[userId,'ACCEPTED']);
+      return rows.map(r=>({id:r.id,followerId:r.follower_id,followingId:r.following_id,status:r.status,user:{id:r.follower_id,fullName:r.full_name,avatarUrl:r.avatar_url}}));
+    }
+    const s=loadStore('follows').filter(f=>f.followingId===userId&&f.status==='ACCEPTED');
+    return Promise.all(s.map(async f=>{const u=await users.findById(f.followerId);return{...f,user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
+  },
+  async getFollowing(userId) {
+    if (USE_PG) {
+      await query(`CREATE TABLE IF NOT EXISTS follows(id TEXT PRIMARY KEY, follower_id TEXT REFERENCES users(id) ON DELETE CASCADE, following_id TEXT REFERENCES users(id) ON DELETE CASCADE, status TEXT DEFAULT 'PENDING', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(follower_id,following_id))`);
+      const rows = await query('SELECT f.*,u.full_name,u.avatar_url FROM follows f JOIN users u ON u.id=f.following_id WHERE f.follower_id=$1 AND f.status=$2',[userId,'ACCEPTED']);
+      return rows.map(r=>({id:r.id,followerId:r.follower_id,followingId:r.following_id,status:r.status,user:{id:r.following_id,fullName:r.full_name,avatarUrl:r.avatar_url}}));
+    }
+    const s=loadStore('follows').filter(f=>f.followerId===userId&&f.status==='ACCEPTED');
+    return Promise.all(s.map(async f=>{const u=await users.findById(f.followingId);return{...f,user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
+  },
+  async getPending(userId) {
+    if (USE_PG) {
+      await query(`CREATE TABLE IF NOT EXISTS follows(id TEXT PRIMARY KEY, follower_id TEXT REFERENCES users(id) ON DELETE CASCADE, following_id TEXT REFERENCES users(id) ON DELETE CASCADE, status TEXT DEFAULT 'PENDING', created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(follower_id,following_id))`);
+      const rows = await query('SELECT f.*,u.full_name,u.avatar_url FROM follows f JOIN users u ON u.id=f.follower_id WHERE f.following_id=$1 AND f.status=$2',[userId,'PENDING']);
+      return rows.map(r=>({id:r.id,followerId:r.follower_id,followingId:r.following_id,status:r.status,user:{id:r.follower_id,fullName:r.full_name,avatarUrl:r.avatar_url}}));
+    }
+    const s=loadStore('follows').filter(f=>f.followingId===userId&&f.status==='PENDING');
+    return Promise.all(s.map(async f=>{const u=await users.findById(f.followerId);return{...f,user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
+  },
+  async getStatus(followerId, followingId) {
+    if (USE_PG) {
+      try {
+        const rows = await query('SELECT status FROM follows WHERE follower_id=$1 AND following_id=$2',[followerId,followingId]);
+        return rows[0]?.status || null;
+      } catch { return null; }
+    }
+    return loadStore('follows').find(f=>f.followerId===followerId&&f.followingId===followingId)?.status || null;
+  },
+};
+
+module.exports.follows = follows;

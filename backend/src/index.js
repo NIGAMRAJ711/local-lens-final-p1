@@ -45,20 +45,21 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 
 // Routes
-app.use('/api/auth',         require('./routes/auth.routes'));
-app.use('/api/users',        require('./routes/user.routes'));
-app.use('/api/guides',       require('./routes/guide.routes'));
-app.use('/api/bookings',     require('./routes/booking.routes'));
-app.use('/api/reels',        require('./routes/reel.routes'));
-app.use('/api/map',          require('./routes/map.routes'));
-app.use('/api/group-tours',  require('./routes/groupTour.routes'));
-app.use('/api/payments',     require('./routes/payment.routes'));
-app.use('/api/chat',         require('./routes/chat.routes'));
-app.use('/api/reviews',      require('./routes/review.routes'));
-app.use('/api/notifications',require('./routes/notification.routes'));
-app.use('/api/sos',          require('./routes/sos.routes'));
-app.use('/api/friends',      require('./routes/friends.routes'));
-app.use('/api/upload',       require('./routes/upload.routes'));
+app.use('/api/auth',          require('./routes/auth.routes'));
+app.use('/api/users',         require('./routes/user.routes'));
+app.use('/api/guides',        require('./routes/guide.routes'));
+app.use('/api/bookings',      require('./routes/booking.routes'));
+app.use('/api/reels',         require('./routes/reel.routes'));
+app.use('/api/map',           require('./routes/map.routes'));
+app.use('/api/group-tours',   require('./routes/groupTour.routes'));
+app.use('/api/payments',      require('./routes/payment.routes'));
+app.use('/api/chat',          require('./routes/chat.routes'));
+app.use('/api/reviews',       require('./routes/review.routes'));
+app.use('/api/notifications', require('./routes/notification.routes'));
+app.use('/api/sos',           require('./routes/sos.routes'));
+app.use('/api/friends',       require('./routes/friends.routes'));
+app.use('/api/upload',        require('./routes/upload.routes'));
+app.use('/api/chat',          require('./routes/chat.routes'));
 
 app.get('/health', (req, res) => res.json({
   status: 'ok', app: 'LocalLens API', version: '2.0.0',
@@ -83,33 +84,36 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5001;
 
 async function start() {
-  // Init PostgreSQL schema if using PG
+  // 1. Init PostgreSQL schema
   if (USE_PG) {
     console.log('🐘 Initializing PostgreSQL schema...');
     await initSchema();
   }
 
-  // Auto-seed if database is empty
-  try {
-    const existingGuides = await guideProfiles.findMany({ page: 1, limit: 3 });
-    if (existingGuides.length === 0) {
-      console.log('🌱 Database empty — running seed...');
-      const { seed } = require('./seed');
-      await seed();
-    } else {
-      console.log(`✅ Database has ${existingGuides.length} guides — skipping seed`);
-    }
-  } catch(e) {
-    console.log('⚠️  Seed check failed (will continue):', e.message);
-  }
-
+  // 2. Start the server FIRST so it's always available
   httpServer.listen(PORT, () => {
     console.log(`\n🚀 LocalLens API on port ${PORT}`);
-    console.log(`📦 Database: ${USE_PG ? 'PostgreSQL ✅' : 'JSON files (set DATABASE_URL for PostgreSQL)'}`);
+    console.log(`📦 Database: ${USE_PG ? 'PostgreSQL ✅' : 'JSON files'}`);
     console.log(`🌍 CORS: ${FRONTEND_URL}`);
-    if (fs.existsSync(distPath)) console.log(`🖥️  Serving frontend from: ${distPath}`);
+    if (fs.existsSync(distPath)) console.log(`🖥️  Serving frontend`);
     console.log(`\n✅ Ready at http://localhost:${PORT}\n`);
   });
+
+  // 3. Seed in background AFTER server is up (won't block or crash server)
+  setTimeout(async () => {
+    try {
+      const existingGuides = await guideProfiles.findMany({ page: 1, limit: 3 });
+      if (existingGuides.length === 0) {
+        console.log('🌱 Database empty — seeding demo data...');
+        const { seed } = require('./seed');
+        await seed();
+      } else {
+        console.log(`✅ Database has ${existingGuides.length} guides — skipping seed`);
+      }
+    } catch (e) {
+      console.log('⚠️  Seed check skipped:', e.message);
+    }
+  }, 2000); // Wait 2s after server starts
 }
 
 start().catch(err => { console.error('Fatal startup error:', err); process.exit(1); });

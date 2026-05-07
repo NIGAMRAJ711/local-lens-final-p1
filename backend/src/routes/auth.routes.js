@@ -48,6 +48,7 @@ router.post('/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Invalid email or password' });
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
+    if (!user.isActive) return res.status(403).json({ error: 'Your account has been suspended. Contact support.' });
     const { accessToken, refreshToken } = makeTokens(user.id);
     res.json({ accessToken, refreshToken, user: safeUser(user) });
   } catch (err) { res.status(500).json({ error: err.message }); }
