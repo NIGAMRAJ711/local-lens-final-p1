@@ -1,91 +1,138 @@
 const express = require('express');
 const router = express.Router();
-const { users, guideProfiles, hiddenGems, reviews, reels, notifications, bookings, walletTransactions } = require('../db');
+const { guideProfiles, reviews, reels, hiddenGems, walletTransactions } = require('../db');
+
+// Fallback city coordinates for major Indian cities
+const CITY_COORDS = {
+  'mumbai': [19.0760, 72.8777], 'delhi': [28.7041, 77.1025], 'bangalore': [12.9716, 77.5946],
+  'bengaluru': [12.9716, 77.5946], 'hyderabad': [17.3850, 78.4867], 'chennai': [13.0827, 80.2707],
+  'kolkata': [22.5726, 88.3639], 'pune': [18.5204, 73.8567], 'jaipur': [26.9124, 75.7873],
+  'lucknow': [26.8467, 80.9462], 'kochi': [9.9312, 76.2673], 'goa': [15.2993, 74.1240],
+  'varanasi': [25.3176, 82.9739], 'agra': [27.1767, 78.0081], 'amritsar': [31.6340, 74.8723],
+  'mysore': [12.2958, 76.6394], 'mysuru': [12.2958, 76.6394], 'udaipur': [24.5854, 73.7125],
+  'rishikesh': [30.0869, 78.2676], 'shimla': [31.1048, 77.1734], 'manali': [32.2432, 77.1892],
+  'davangere': [14.4644, 75.9218], 'hubli': [15.3647, 75.1240], 'coimbatore': [11.0168, 76.9558],
+};
+
+function getCityCoords(city) {
+  const key = city?.toLowerCase().trim();
+  return CITY_COORDS[key] || null;
+}
 const { protect } = require('../middleware/error.middleware');
 
-// GET /api/guides
-router.get('/', (req, res) => {
-  const guides = guideProfiles.findMany(req.query);
-  const total = guideProfiles.countMany(req.query);
-  const limit = parseInt(req.query.limit) || 12;
-  res.json({ guides, total, pagination: { total, pages: Math.ceil(total / limit), page: parseInt(req.query.page) || 1 } });
-});
-
-// GET /api/guides/dashboard/stats  — must come BEFORE /:id
-router.get('/dashboard/stats', protect, (req, res) => {
-  const guide = guideProfiles.findByUserId(req.user.id);
-  if (!guide) return res.status(404).json({ error: 'Guide profile not found' });
-
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const weekStart = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-  const txns = walletTransactions.findByUser(req.user.id).filter(t => t.type === 'CREDIT');
-  const todayEarnings = txns.filter(t => t.createdAt >= todayStart).reduce((s, t) => s + t.amount, 0);
-  const weekEarnings = txns.filter(t => t.createdAt >= weekStart).reduce((s, t) => s + t.amount, 0);
-  const monthEarnings = txns.filter(t => t.createdAt >= monthStart).reduce((s, t) => s + t.amount, 0);
-
-  res.json({
-    stats: guide,
-    earnings: { today: todayEarnings, week: weekEarnings, month: monthEarnings, total: guide.totalEarnings || 0 },
-  });
-});
-
-// POST /api/guides/register
-router.post('/register', protect, (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const existing = guideProfiles.findByUserId(req.user.id);
-    if (existing) {
-      const updated = guideProfiles.updateByUserId(req.user.id, req.body);
-      users.update(req.user.id, { role: 'GUIDE' });
-      return res.json({ guide: updated });
+    const [guides, total] = await Promise.all([
+      guideProfiles.findMany(req.query),
+      guideProfiles.countMany(req.query),
+    ]);
+    const { page=1, limit=12 } = req.query;
+    res.json({ guides, total, pagination: { page:parseInt(page), limit:parseInt(limit), total, pages:Math.ceil(total/parseInt(limit)) } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/dashboard/stats', protect, async (req, res) => {
+  try {
+    const guide = await guideProfiles.findByUserId(req.user.id);
+    if (!guide) return res.status(404).json({ error: 'Guide profile not found' });
+    const now = new Date();
+    const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
+    const weekStart = new Date(now); weekStart.setDate(now.getDate()-7);
+    const monthStart = new Date(now); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+    const txns = (await walletTransactions.findByUser(req.user.id)).filter(t=>t.type==='CREDIT'||t.amount>0);
+    const today = txns.filter(t=>new Date(t.createdAt||t.created_at)>=todayStart).reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    const week = txns.filter(t=>new Date(t.createdAt||t.created_at)>=weekStart).reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    const month = txns.filter(t=>new Date(t.createdAt||t.created_at)>=monthStart).reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    const total = txns.reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    
+    // Calculate last 7 days earnings for chart
+    const last7Days = Array.from({length: 7}).map((_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - (6 - i)); d.setHours(0,0,0,0);
+      return { date: d.toISOString().split('T')[0], amount: 0 };
+    });
+    txns.forEach(t => {
+      const dateStr = new Date(t.createdAt||t.created_at).toISOString().split('T')[0];
+      const dayIndex = last7Days.findIndex(d => d.date === dateStr);
+      if (dayIndex !== -1) last7Days[dayIndex].amount += parseFloat(t.amount||0);
+    });
+    
+    res.json({ stats:{ walletBalance:guide.walletBalance||0, totalBookings:guide.totalBookings||0, avgRating:guide.avgRating||0, totalReviews:guide.totalReviews||0, isAvailable:guide.isAvailable||false }, earnings:{today,week,month,total, last7Days} });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/:id', async (req, res) => {
+  try {
+    const guide = await guideProfiles.findById(req.params.id);
+    if (!guide) return res.status(404).json({ error: 'Guide not found' });
+    const [guideReviews, guideReels, gems] = await Promise.all([
+      reviews.findByReviewee(guide.userId),
+      reels.findByUser(guide.userId),
+      hiddenGems.findByGuide(guide.id),
+    ]);
+    res.json({ guide:{ ...guide, hiddenGems:gems }, reviews:guideReviews, reels:guideReels });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/register', protect, async (req, res) => {
+  try {
+    const { bio, city, country, languages, expertiseTags, isPhotographer, hourlyRate, halfDayRate, fullDayRate, photographyRate } = req.body;
+    if (!bio || !city || !hourlyRate) return res.status(400).json({ error: 'bio, city and hourlyRate are required' });
+    const guide = await guideProfiles.create({ userId:req.user.id, bio, city, country:country||'India', languages:languages||[], expertiseTags:expertiseTags||[], isPhotographer:!!isPhotographer, hourlyRate:parseFloat(hourlyRate), halfDayRate:parseFloat(halfDayRate)||parseFloat(hourlyRate)*3, fullDayRate:parseFloat(fullDayRate)||parseFloat(hourlyRate)*6, photographyRate:photographyRate?parseFloat(photographyRate):null });
+    // Auto-geocode city to get coordinates for map
+    try {
+      const https = require('https');
+      const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city+','+( country||'India'))}&limit=1`;
+      // Use node-fetch or https
+      const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args)).catch(() => null);
+      const geoRes = await fetch(geocodeUrl).catch(() => null);
+      if (geoRes && geoRes.ok) {
+        const geoData = await geoRes.json();
+        if (geoData[0]) {
+          const lat = parseFloat(geoData[0].lat) + (Math.random()-0.5)*0.02;
+          const lng = parseFloat(geoData[0].lon) + (Math.random()-0.5)*0.02;
+          await guideProfiles.update(guide.id, { latitude: lat, longitude: lng });
+          guide.latitude = lat; guide.longitude = lng;
+        }
+      }
+    } catch(geoErr) {
+      // Use hardcoded coords as fallback
+      const coords = getCityCoords(city);
+      if (coords) {
+        const lat = coords[0] + (Math.random()-0.5)*0.02;
+        const lng = coords[1] + (Math.random()-0.5)*0.02;
+        await guideProfiles.update(guide.id, { latitude: lat, longitude: lng }).catch(()=>{});
+        guide.latitude = lat; guide.longitude = lng;
+      }
     }
-    const guide = guideProfiles.create({ userId: req.user.id, ...req.body });
-    users.update(req.user.id, { role: 'GUIDE' });
-    notifications.create({ userId: req.user.id, title: '🗺️ Guide Profile Live!', body: 'Your guide profile is now visible to travellers. Start accepting bookings!', type: 'GUIDE_APPROVED' });
     res.status(201).json({ guide });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    if (err.message?.includes('already exists')) return res.status(409).json({ error: 'Guide profile already exists' });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// PATCH /api/guides/availability
-router.patch('/availability', protect, (req, res) => {
-  const { isAvailable } = req.body;
-  const guide = guideProfiles.findByUserId(req.user.id);
-  if (!guide) return res.status(404).json({ error: 'Guide profile not found' });
-  guideProfiles.update(guide.id, { isAvailable });
-  res.json({ isAvailable });
+router.patch('/availability', protect, async (req, res) => {
+  try {
+    const guide = await guideProfiles.updateByUserId(req.user.id, { isAvailable:!!req.body.isAvailable });
+    res.json({ guide, message:`You are now ${req.body.isAvailable?'online':'offline'}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PATCH /api/guides/location
-router.patch('/location', protect, (req, res) => {
-  const { latitude, longitude } = req.body;
-  const guide = guideProfiles.findByUserId(req.user.id);
-  if (!guide) return res.status(404).json({ error: 'Guide profile not found' });
-  guideProfiles.update(guide.id, { latitude: parseFloat(latitude), longitude: parseFloat(longitude), lastLocationUpdate: new Date().toISOString() });
-  const io = req.app.get('io');
-  if (io) io.emit('guide:location-update', { guideId: req.user.id, latitude, longitude });
-  res.json({ latitude, longitude });
+router.patch('/location', protect, async (req, res) => {
+  try {
+    const { latitude, longitude } = req.body;
+    const guide = await guideProfiles.updateByUserId(req.user.id, { latitude:parseFloat(latitude), longitude:parseFloat(longitude) });
+    res.json({ guide });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/guides/hidden-gems
-router.post('/hidden-gems', protect, (req, res) => {
-  const guide = guideProfiles.findByUserId(req.user.id);
-  if (!guide) return res.status(403).json({ error: 'Guide profile required' });
-  const gem = hiddenGems.create({ guideId: guide.id, ...req.body });
-  res.status(201).json({ gem });
-});
-
-// GET /api/guides/:id  — must come AFTER named routes
-router.get('/:id', (req, res) => {
-  const guide = guideProfiles.findById(req.params.id);
-  if (!guide) return res.status(404).json({ error: 'Guide not found' });
-  const guideReviews = reviews.findByReviewee(guide.userId);
-  const guideReels = reels.findByUser(guide.userId).slice(0, 9);
-  const guideGems = hiddenGems.findByGuide(guide.id);
-  res.json({ guide, reviews: guideReviews, reels: guideReels, hiddenGems: guideGems });
+router.post('/hidden-gems', protect, async (req, res) => {
+  try {
+    const guide = await guideProfiles.findByUserId(req.user.id);
+    if (!guide) return res.status(403).json({ error: 'Guide profile required' });
+    const gem = await hiddenGems.create({ guideId:guide.id, ...req.body });
+    res.status(201).json({ gem });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;

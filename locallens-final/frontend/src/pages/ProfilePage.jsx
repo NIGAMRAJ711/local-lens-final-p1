@@ -1,27 +1,45 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../components/shared/Layout';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { userApi, uploadApi } from '../lib/api';
-import { Camera, Save, User, Mail, Phone, Globe } from 'lucide-react';
+import { Camera, Save, User, Mail, Phone, Calendar, Edit2, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function ProfilePage() {
   const { user, updateUser } = useAuth();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const fileInputRef = useRef(null);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ fullName: user?.fullName || '', phone: user?.phone || '', avatarUrl: user?.avatarUrl || '' });
+  const [form, setForm] = useState({
+    fullName: user?.fullName || '',
+    phone: user?.phone || '',
+    avatarUrl: user?.avatarUrl || '',
+  });
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [message, setMessage] = useState('');
+  const [previewUrl, setPreviewUrl] = useState(user?.avatarUrl || '');
 
-  const handlePhotoUpload = async (e) => {
+  const handlePhotoSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    // Show preview immediately
+    const reader = new FileReader();
+    reader.onload = (ev) => setPreviewUrl(ev.target.result);
+    reader.readAsDataURL(file);
+
     setUploadingPhoto(true);
     try {
       const data = await uploadApi.image(file);
       setForm(f => ({ ...f, avatarUrl: data.url }));
+      setPreviewUrl(data.url);
+      toast.success('Photo uploaded! Click Save to apply.');
     } catch (err) {
-      alert('Photo upload failed: ' + err.message);
+      toast.error('Photo upload failed: ' + err.message);
+      setPreviewUrl(user?.avatarUrl || '');
     } finally {
       setUploadingPhoto(false);
     }
@@ -33,66 +51,95 @@ export default function ProfilePage() {
       const data = await userApi.updateMe(form);
       updateUser(data.user);
       setEditing(false);
-      setMessage('Profile updated successfully!');
-      setTimeout(() => setMessage(''), 3000);
+      toast.success('Profile updated successfully!');
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message || 'Failed to update profile');
     } finally {
       setSaving(false);
     }
   };
 
+  const handleCancel = () => {
+    setForm({ fullName: user?.fullName || '', phone: user?.phone || '', avatarUrl: user?.avatarUrl || '' });
+    setPreviewUrl(user?.avatarUrl || '');
+    setEditing(false);
+  };
+
+  const displayAvatar = editing ? previewUrl : user?.avatarUrl;
+
   return (
     <Layout title="My Profile">
-      <div className="max-w-2xl mx-auto space-y-6">
-        {message && (
-          <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">{message}</div>
-        )}
-
+      <div className="max-w-xl mx-auto space-y-5">
         {/* Profile Card */}
         <div className="card p-6">
-          <div className="flex items-start gap-6">
-            {/* Avatar */}
+          {/* Avatar section */}
+          <div className="flex items-start gap-5 mb-6">
             <div className="relative flex-shrink-0">
-              {(editing ? form.avatarUrl : user?.avatarUrl) ? (
-                <img src={editing ? form.avatarUrl : user?.avatarUrl} className="w-24 h-24 rounded-2xl object-cover" alt="" />
+              {displayAvatar ? (
+                <img
+                  src={displayAvatar}
+                  alt="Profile"
+                  className="w-24 h-24 rounded-2xl object-cover border-4 border-gray-100 shadow-sm"
+                />
               ) : (
-                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-3xl font-bold text-white">
-                  {user?.fullName?.[0]}
+                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-3xl font-bold text-white border-4 border-gray-100 shadow-sm">
+                  {user?.fullName?.[0]?.toUpperCase()}
                 </div>
               )}
+
               {editing && (
-                <label className="absolute -bottom-2 -right-2 bg-green-600 text-white rounded-full w-7 h-7 flex items-center justify-center cursor-pointer hover:bg-green-700">
-                  <Camera className="w-3.5 h-3.5" />
-                  <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-                </label>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  className="absolute -bottom-2 -right-2 bg-green-600 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-green-700 transition shadow-lg"
+                >
+                  {uploadingPhoto ? (
+                    <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                  ) : (
+                    <Camera className="w-4 h-4" />
+                  )}
+                </button>
               )}
-              {uploadingPhoto && (
-                <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-2xl">
-                  <div className="animate-spin w-5 h-5 border-2 border-green-500 border-t-transparent rounded-full"/>
-                </div>
-              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoSelect}
+                className="hidden"
+              />
             </div>
 
-            {/* Info */}
             <div className="flex-1">
               {editing ? (
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs font-medium text-gray-600 mb-1 block">Full Name</label>
-                    <input className="input-field" value={form.fullName}
-                      onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} />
+                    <input
+                      className="input-field"
+                      value={form.fullName}
+                      onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))}
+                      placeholder="Your full name"
+                    />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 mb-1 block">Phone</label>
-                    <input className="input-field" value={form.phone}
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">Phone Number</label>
+                    <input
+                      className="input-field"
+                      value={form.phone}
                       onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                      placeholder="+91 9876543210" />
+                      placeholder="+91 9876543210"
+                    />
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setEditing(false)} className="btn-secondary flex-1 text-sm">Cancel</button>
-                    <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 text-sm">
-                      {saving ? 'Saving...' : 'Save Changes'}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={handleCancel} className="btn-secondary flex-1 text-sm py-2">
+                      Cancel
+                    </button>
+                    <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 text-sm py-2 flex items-center justify-center gap-1.5">
+                      {saving ? (
+                        <><div className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" /> Saving...</>
+                      ) : (
+                        <><Save className="w-3.5 h-3.5" /> Save Changes</>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -102,51 +149,97 @@ export default function ProfilePage() {
                     <div>
                       <h2 className="text-xl font-bold text-gray-900">{user?.fullName}</h2>
                       <p className="text-sm text-gray-500 mt-0.5">
-                        {user?.role === 'GUIDE' ? '🗺️ Guide' : user?.role === 'BOTH' ? '🌍 Guide & Traveller' : '🧳 Traveller'}
+                        {user?.role === 'GUIDE' ? '🗺️ Local Guide' : user?.role === 'BOTH' ? '🌍 Guide & Traveller' : '🧳 Traveller'}
                       </p>
                     </div>
-                    <button onClick={() => setEditing(true)} className="btn-secondary text-sm">Edit Profile</button>
+                    <button
+                      onClick={() => setEditing(true)}
+                      className="flex items-center gap-1.5 text-sm text-green-600 hover:text-green-700 border border-green-200 px-3 py-1.5 rounded-lg hover:bg-green-50 transition"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" /> Edit
+                    </button>
                   </div>
-                  <div className="mt-3 space-y-1.5 text-sm text-gray-600">
+                  <div className="mt-3 space-y-2 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-gray-400" /> {user?.email}
+                      <Mail className="w-4 h-4 text-gray-400" />
+                      <span>{user?.email}</span>
+                      {user?.isEmailVerified && <CheckCircle className="w-3.5 h-3.5 text-green-500" />}
                     </div>
                     {user?.phone && (
                       <div className="flex items-center gap-2">
-                        <Phone className="w-4 h-4 text-gray-400" /> {user?.phone}
+                        <Phone className="w-4 h-4 text-gray-400" />
+                        <span>{user.phone}</span>
                       </div>
                     )}
                     <div className="flex items-center gap-2">
-                      <User className="w-4 h-4 text-gray-400" />
-                      Member since {user?.createdAt ? format(new Date(user.createdAt), 'MMMM yyyy') : 'recently'}
+                      <Calendar className="w-4 h-4 text-gray-400" />
+                      <span>Member since {user?.createdAt ? format(new Date(user.createdAt), 'MMMM yyyy') : 'recently'}</span>
                     </div>
                   </div>
                 </>
               )}
             </div>
           </div>
+
+          {/* Stats row */}
+          {!editing && (
+            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-gray-100">
+              <div className="text-center">
+                <p className="text-xl font-bold text-gray-900">{user?.travelerProfile?.totalToursBooked || 0}</p>
+                <p className="text-xs text-gray-500">Tours Booked</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-bold text-green-600">{user?.travelerProfile?.loyaltyPoints || 0}</p>
+                <p className="text-xs text-gray-500">Loyalty Points</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-bold text-blue-600">{user?.guideProfile?.totalBookings || 0}</p>
+                <p className="text-xs text-gray-500">Tours Guided</p>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Account Info */}
+        {/* Account Details */}
         <div className="card p-5">
-          <h3 className="font-semibold text-gray-900 mb-3">Account Details</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between py-2 border-b border-gray-50">
-              <span className="text-gray-500">Account Type</span>
-              <span className="font-medium">{user?.role}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-gray-50">
-              <span className="text-gray-500">Email Verified</span>
-              <span className={`font-medium ${user?.isEmailVerified ? 'text-green-600' : 'text-yellow-600'}`}>
-                {user?.isEmailVerified ? '✓ Verified' : 'Pending'}
-              </span>
-            </div>
-            <div className="flex justify-between py-2">
-              <span className="text-gray-500">Referral Code</span>
-              <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{user?.referralCode?.slice(0, 8)}</span>
-            </div>
+          <h3 className="font-bold text-gray-900 mb-4">Account Details</h3>
+          <div className="space-y-2">
+            {[
+              { label: 'Account Type', value: user?.role },
+              { label: 'Email Verified', value: user?.isEmailVerified ? '✅ Verified' : '⏳ Pending', colored: true },
+              { label: 'Referral Code', value: user?.referralCode },
+            ].map(item => (
+              <div key={item.label} className="flex justify-between items-center py-2.5 border-b border-gray-50 last:border-0">
+                <span className="text-sm text-gray-500">{item.label}</span>
+                <span className={`text-sm font-medium ${item.colored ? (user?.isEmailVerified ? 'text-green-600' : 'text-orange-500') : 'text-gray-700'}`}>
+                  {item.value}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
+
+        {/* Guide Profile section */}
+        {user?.guideProfile && (
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900">Guide Profile</h3>
+              <button onClick={() => navigate('/guide-dashboard')} className="text-sm text-green-600 hover:underline">
+                Manage →
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-center">
+              <div className="bg-yellow-50 rounded-xl p-3">
+                <p className="text-xl font-bold text-yellow-600">⭐ {user.guideProfile.avgRating?.toFixed(1) || '0.0'}</p>
+                <p className="text-xs text-gray-500">{user.guideProfile.totalReviews} reviews</p>
+              </div>
+              <div className="bg-green-50 rounded-xl p-3">
+                <p className="text-xl font-bold text-green-600">₹{user.guideProfile.walletBalance?.toFixed(0) || '0'}</p>
+                <p className="text-xs text-gray-500">Wallet balance</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

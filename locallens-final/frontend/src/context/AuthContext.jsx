@@ -25,6 +25,7 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const data = await authApi.login({ email, password });
+    if (!data.accessToken) throw new Error('Login failed — no token received');
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
     setUser(data.user);
@@ -33,6 +34,7 @@ export function AuthProvider({ children }) {
 
   const register = async (formData) => {
     const data = await authApi.register(formData);
+    if (!data.accessToken) throw new Error('Registration failed');
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
     setUser(data.user);
@@ -50,12 +52,17 @@ export function AuthProvider({ children }) {
 
   const switchRole = async (role) => {
     const data = await userApi.switchRole(role);
-    setUser(prev => ({ ...prev, role: data.user.role }));
+    setUser(prev => prev ? { ...prev, role: data.user.role } : null);
     return data;
   };
 
   const refreshUser = async () => {
-    await loadUser();
+    const token = localStorage.getItem('accessToken');
+    if (!token) return;
+    try {
+      const data = await userApi.getMe();
+      setUser(data.user);
+    } catch {}
   };
 
   return (

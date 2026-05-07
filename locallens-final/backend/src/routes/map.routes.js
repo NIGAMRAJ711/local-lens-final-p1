@@ -1,16 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { guideProfiles, hiddenGems } = require('../db');
-
-router.get('/guides', (req, res) => {
-  const guides = guideProfiles.findMany({ ...req.query, limit: 200 })
-    .filter(g => g.latitude && g.longitude);
-  res.json({ guides });
+router.get('/guides', async (req, res) => {
+  try { const guides = await guideProfiles.findMany({ ...req.query, limit:500 }); res.json({ guides }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-router.get('/hidden-gems', (req, res) => {
-  const gems = hiddenGems.findMany(req.query);
-  res.json({ gems });
+router.get('/hidden-gems', async (req, res) => {
+  try { const gems = await hiddenGems.findMany(req.query); res.json({ gems }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 module.exports = router;

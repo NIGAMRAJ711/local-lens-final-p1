@@ -1,113 +1,180 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Layout from '../../components/shared/Layout';
+import { useToast } from '../../context/ToastContext';
 import { guideApi } from '../../lib/api';
-import { Search, MapPin, Star, Filter, X, Camera, Clock, DollarSign } from 'lucide-react';
+import { Search, MapPin, Star, Filter, X, Camera, Clock, SlidersHorizontal } from 'lucide-react';
+
+const CATEGORIES = ['Food & Cuisine','History','Art & Culture','Nature','Photography','Adventure','Street Markets','Architecture','Nightlife','Spirituality','Beach'];
 
 export default function ExplorePage() {
+  const toast = useToast();
   const [guides, setGuides] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ city: '', category: '', minPrice: '', maxPrice: '', rating: '', isAvailable: '' });
   const [showFilters, setShowFilters] = useState(false);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState(null);
 
-  const categories = ['Food & Cuisine', 'History', 'Art & Culture', 'Nature', 'Photography', 'Adventure', 'Street Markets', 'Architecture', 'Nightlife'];
+  // Separate filter state (pending) vs applied state
+  const [pendingFilters, setPendingFilters] = useState({ city: '', category: '', minPrice: '', maxPrice: '', rating: '', isAvailable: '' });
+  const [appliedFilters, setAppliedFilters] = useState({ city: '', category: '', minPrice: '', maxPrice: '', rating: '', isAvailable: '' });
 
-  const loadGuides = async (reset = false) => {
+  const activeCount = Object.values(appliedFilters).filter(Boolean).length;
+
+  useEffect(() => { loadGuides(1, appliedFilters, search); }, []);
+
+  const loadGuides = async (page = 1, filters = appliedFilters, citySearch = search) => {
     setLoading(true);
     try {
-      const params = { page: reset ? 1 : page, limit: 12, ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v)) };
-      if (search) params.city = search;
+      const params = { page, limit: 12 };
+      if (citySearch) params.city = citySearch;
+      Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
       const data = await guideApi.search(params);
-      if (reset) { setGuides(data.guides || []); setPage(1); }
-      else setGuides(prev => [...prev, ...(data.guides || [])]);
+      setGuides(data.guides || []);
       setPagination(data.pagination);
-    } catch {
-      setGuides([]);
+    } catch (err) {
+      toast.error('Failed to load guides');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadGuides(true); }, [filters]);
+  const handleSearch = (e) => {
+    e.preventDefault();
+    loadGuides(1, appliedFilters, search);
+  };
 
-  const clearFilters = () => setFilters({ city: '', category: '', minPrice: '', maxPrice: '', rating: '', isAvailable: '' });
+  const handleApplyFilters = () => {
+    setAppliedFilters({ ...pendingFilters });
+    setShowFilters(false);
+    loadGuides(1, pendingFilters, search);
+    if (Object.values(pendingFilters).some(Boolean)) {
+      toast.success('Filters applied');
+    }
+  };
 
-  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const handleClearFilters = () => {
+    const empty = { city: '', category: '', minPrice: '', maxPrice: '', rating: '', isAvailable: '' };
+    setPendingFilters(empty);
+    setAppliedFilters(empty);
+    setSearch('');
+    loadGuides(1, empty, '');
+    toast.info('Filters cleared');
+  };
 
   return (
     <Layout title="Explore Guides">
-      {/* Search & Filter Bar */}
-      <div className="flex gap-3 mb-4">
+      {/* Search bar */}
+      <form onSubmit={handleSearch} className="flex gap-2 mb-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             className="input-field pl-9"
-            placeholder="Search by city..."
+            placeholder="Search by city, name..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && loadGuides(true)}
           />
         </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition ${showFilters ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:border-green-500'}`}
-        >
-          <Filter className="w-4 h-4" />
-          Filters
-          {activeFilterCount > 0 && <span className="bg-white text-green-700 text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">{activeFilterCount}</span>}
+        <button type="submit" className="btn-primary px-5">
+          Search
         </button>
-      </div>
+        <button
+          type="button"
+          onClick={() => { setPendingFilters(appliedFilters); setShowFilters(!showFilters); }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition relative ${showFilters ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:border-green-500'}`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          Filters
+          {activeCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+              {activeCount}
+            </span>
+          )}
+        </button>
+      </form>
 
-      {/* Filters Panel */}
+      {/* Active filter chips */}
+      {activeCount > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {Object.entries(appliedFilters).filter(([,v]) => v).map(([k, v]) => (
+            <span key={k} className="flex items-center gap-1 text-xs bg-green-100 text-green-800 px-3 py-1 rounded-full font-medium">
+              {k === 'isAvailable' ? 'Available Now' : `${k}: ${v}`}
+              <button onClick={() => {
+                const updated = { ...appliedFilters, [k]: '' };
+                setAppliedFilters(updated);
+                setPendingFilters(updated);
+                loadGuides(1, updated, search);
+              }}>
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          <button onClick={handleClearFilters} className="text-xs text-red-500 hover:underline px-1">
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {/* Filters panel */}
       {showFilters && (
-        <div className="card p-4 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-gray-900">Filter Guides</h3>
-            <button onClick={clearFilters} className="text-xs text-red-500 hover:underline flex items-center gap-1">
-              <X className="w-3 h-3" /> Clear all
+        <div className="card p-5 mb-5 border-2 border-green-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-900 text-sm">Filter Guides</h3>
+            <button onClick={() => setShowFilters(false)} className="text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">Category</label>
-              <select className="input-field text-sm" value={filters.category} onChange={e => setFilters(f => ({ ...f, category: e.target.value }))}>
+              <select className="input-field text-sm" value={pendingFilters.category}
+                onChange={e => setPendingFilters(f => ({ ...f, category: e.target.value }))}>
                 <option value="">All categories</option>
-                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">Min Price (₹/hr)</label>
-              <input type="number" className="input-field text-sm" placeholder="0" value={filters.minPrice}
-                onChange={e => setFilters(f => ({ ...f, minPrice: e.target.value }))} />
+              <input type="number" className="input-field text-sm" placeholder="e.g. 200"
+                value={pendingFilters.minPrice}
+                onChange={e => setPendingFilters(f => ({ ...f, minPrice: e.target.value }))} />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">Max Price (₹/hr)</label>
-              <input type="number" className="input-field text-sm" placeholder="5000" value={filters.maxPrice}
-                onChange={e => setFilters(f => ({ ...f, maxPrice: e.target.value }))} />
+              <input type="number" className="input-field text-sm" placeholder="e.g. 2000"
+                value={pendingFilters.maxPrice}
+                onChange={e => setPendingFilters(f => ({ ...f, maxPrice: e.target.value }))} />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">Min Rating</label>
-              <select className="input-field text-sm" value={filters.rating} onChange={e => setFilters(f => ({ ...f, rating: e.target.value }))}>
+              <select className="input-field text-sm" value={pendingFilters.rating}
+                onChange={e => setPendingFilters(f => ({ ...f, rating: e.target.value }))}>
                 <option value="">Any rating</option>
                 {[3, 3.5, 4, 4.5].map(r => <option key={r} value={r}>⭐ {r}+</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">Availability</label>
-              <select className="input-field text-sm" value={filters.isAvailable} onChange={e => setFilters(f => ({ ...f, isAvailable: e.target.value }))}>
+              <select className="input-field text-sm" value={pendingFilters.isAvailable}
+                onChange={e => setPendingFilters(f => ({ ...f, isAvailable: e.target.value }))}>
                 <option value="">All guides</option>
-                <option value="true">Available now</option>
+                <option value="true">Available now only</option>
               </select>
             </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={handleClearFilters} className="btn-secondary flex-1 text-sm">
+              Clear All
+            </button>
+            <button onClick={handleApplyFilters} className="btn-primary flex-1 text-sm">
+              Apply Filters
+            </button>
           </div>
         </div>
       )}
 
       {/* Results */}
-      {loading && guides.length === 0 ? (
+      {loading ? (
         <div className="text-center py-16">
           <div className="animate-spin w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full mx-auto" />
           <p className="text-gray-500 mt-3 text-sm">Finding guides...</p>
@@ -115,23 +182,31 @@ export default function ExplorePage() {
       ) : guides.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <Search className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-          <p className="font-medium">No guides found</p>
-          <p className="text-sm mt-1">Try adjusting your filters</p>
-          <button onClick={clearFilters} className="btn-primary mt-3">Clear Filters</button>
+          <p className="font-medium text-lg">No guides found</p>
+          <p className="text-sm mt-1">Try a different city or clear filters</p>
+          <button onClick={handleClearFilters} className="btn-primary mt-4">Clear Filters</button>
         </div>
       ) : (
         <>
-          <p className="text-sm text-gray-500 mb-4">{pagination?.total || guides.length} guides found</p>
+          <p className="text-sm text-gray-500 mb-4">
+            {pagination?.total || guides.length} guides found
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {guides.map(g => (
-              <Link key={g.id} to={`/guides/${g.id}`} className="card hover:shadow-lg transition group">
-                {/* Cover / Avatar */}
-                <div className="h-32 bg-gradient-to-br from-green-400 to-emerald-600 relative">
+              <Link key={g.id} to={`/guides/${g.id}`} className="card hover:shadow-xl transition group">
+                {/* Cover area */}
+                <div className="h-32 relative overflow-hidden">
+                  {g.coverImage ? (
+                    <img src={g.coverImage} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-green-400 to-emerald-600" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/30" />
                   <div className="absolute bottom-3 left-3 flex items-end gap-2">
                     {g.user?.avatarUrl ? (
-                      <img src={g.user.avatarUrl} className="w-14 h-14 rounded-xl object-cover border-2 border-white shadow" alt="" />
+                      <img src={g.user.avatarUrl} className="w-14 h-14 rounded-xl border-2 border-white shadow object-cover" alt="" />
                     ) : (
-                      <div className="w-14 h-14 rounded-xl bg-white flex items-center justify-center text-xl font-bold text-green-600 shadow">
+                      <div className="w-14 h-14 rounded-xl border-2 border-white shadow bg-green-500 flex items-center justify-center text-xl font-bold text-white">
                         {g.user?.fullName?.[0]}
                       </div>
                     )}
@@ -140,18 +215,20 @@ export default function ExplorePage() {
                     )}
                   </div>
                   {g.isPhotographer && (
-                    <div className="absolute top-2 right-2 bg-white/90 rounded-full p-1">
-                      <Camera className="w-4 h-4 text-purple-600" />
+                    <div className="absolute top-2 right-2 bg-white/90 rounded-full p-1.5">
+                      <Camera className="w-3.5 h-3.5 text-purple-600" />
                     </div>
                   )}
                 </div>
 
                 <div className="p-4">
                   <div className="flex items-start justify-between mb-1">
-                    <h3 className="font-semibold text-gray-900 group-hover:text-green-600 transition">{g.user?.fullName}</h3>
-                    <div className="flex items-center gap-1 text-sm">
-                      <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                      <span className="font-medium">{g.avgRating?.toFixed(1) || '0.0'}</span>
+                    <h3 className="font-semibold text-gray-900 group-hover:text-green-600 transition line-clamp-1">
+                      {g.user?.fullName}
+                    </h3>
+                    <div className="flex items-center gap-0.5 text-sm flex-shrink-0 ml-2">
+                      <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+                      <span className="font-medium text-gray-700">{g.avgRating?.toFixed(1) || '0.0'}</span>
                       <span className="text-gray-400 text-xs">({g.totalReviews})</span>
                     </div>
                   </div>
@@ -167,9 +244,9 @@ export default function ExplorePage() {
                   </div>
 
                   <div className="flex items-center justify-between text-sm border-t border-gray-100 pt-3">
-                    <div className="flex items-center gap-3 text-gray-500">
-                      <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{g.totalBookings} tours</span>
-                    </div>
+                    <span className="flex items-center gap-1 text-gray-500 text-xs">
+                      <Clock className="w-3 h-3" />{g.totalBookings} tours
+                    </span>
                     <span className="text-green-600 font-bold">₹{g.hourlyRate}/hr</span>
                   </div>
                 </div>
@@ -177,12 +254,14 @@ export default function ExplorePage() {
             ))}
           </div>
 
-          {pagination && page < pagination.pages && (
-            <div className="text-center mt-6">
-              <button onClick={() => { setPage(p => p + 1); loadGuides(); }} disabled={loading}
-                className="btn-outline px-8">
-                {loading ? 'Loading...' : 'Load More'}
-              </button>
+          {pagination && pagination.pages > 1 && (
+            <div className="flex justify-center gap-2 mt-8">
+              {Array.from({ length: pagination.pages }, (_, i) => i + 1).slice(0, 5).map(p => (
+                <button key={p} onClick={() => loadGuides(p, appliedFilters, search)}
+                  className={`w-9 h-9 rounded-lg text-sm font-medium transition ${p === pagination.page ? 'bg-green-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-green-400'}`}>
+                  {p}
+                </button>
+              ))}
             </div>
           )}
         </>
