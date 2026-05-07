@@ -10,6 +10,8 @@ import TravelerDashboard from './pages/traveler/TravelerDashboard';
 import GuideDashboard from './pages/guide/GuideDashboard';
 import ExplorePage from './pages/traveler/ExplorePage';
 import GroupToursPage from './pages/traveler/GroupToursPage';
+import CommunitiesPage from './pages/traveler/CommunitiesPage';
+import CommunityDetailsPage from './pages/traveler/CommunityDetailsPage';
 import ReelsPage from './pages/ReelsPage';
 import MapPage from './pages/MapPage';
 import ProfilePage from './pages/ProfilePage';
@@ -50,6 +52,8 @@ export default function App() {
       <Route path="/dashboard" element={<ProtectedRoute><TravelerDashboard /></ProtectedRoute>} />
       <Route path="/explore" element={<ProtectedRoute><ExplorePage /></ProtectedRoute>} />
       <Route path="/group-tours" element={<ProtectedRoute><GroupToursPage /></ProtectedRoute>} />
+      <Route path="/communities" element={<ProtectedRoute><CommunitiesPage /></ProtectedRoute>} />
+      <Route path="/communities/:id" element={<ProtectedRoute><CommunityDetailsPage /></ProtectedRoute>} />
       <Route path="/reels" element={<ProtectedRoute><ReelsPage /></ProtectedRoute>} />
       <Route path="/map" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
       <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />

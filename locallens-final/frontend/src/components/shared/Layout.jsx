@@ -30,6 +30,7 @@ export default function Layout({ children, title }) {
     { path: '/dashboard', icon: Home, label: 'Home' },
     { path: '/explore', icon: Compass, label: 'Explore' },
     { path: '/group-tours', icon: Users, label: 'Tours' },
+    { path: '/communities', icon: Users, label: 'Groups' },
     { path: '/reels', icon: Film, label: 'Reels' },
     { path: '/map', icon: Map, label: 'Map' },
     { path: '/messages', icon: MessageCircle, label: 'Chat' },

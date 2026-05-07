@@ -144,6 +144,15 @@ export const groupTourApi = {
   myJoined: () => api.get('/group-tours/my/joined'),
 };
 
+export const communityApi = {
+  getAll: () => api.get('/communities'),
+  getOne: (id) => api.get(`/communities/${id}`),
+  create: (data) => api.post('/communities', data),
+  join: (id) => api.post(`/communities/${id}/join`),
+  leave: (id) => api.delete(`/communities/${id}/leave`),
+  createPost: (id, data) => api.post(`/communities/${id}/posts`, data),
+};
+
 // Map
 export const mapApi = {
   getGuides: (params) => api.get('/map/guides?' + new URLSearchParams(params).toString()),

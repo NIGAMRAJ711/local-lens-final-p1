@@ -66,6 +66,9 @@ async function initSchema() {
     CREATE TABLE IF NOT EXISTS hidden_gems(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id),name TEXT NOT NULL,description TEXT DEFAULT '',category TEXT DEFAULT '',city TEXT DEFAULT '',latitude NUMERIC DEFAULT 0,longitude NUMERIC DEFAULT 0,is_locked BOOLEAN DEFAULT true,photos TEXT[] DEFAULT '{}',created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS wallet_transactions(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),amount NUMERIC NOT NULL,type TEXT DEFAULT 'CREDIT',description TEXT DEFAULT '',booking_id TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS sos_alerts(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),latitude NUMERIC,longitude NUMERIC,booking_id TEXT,message TEXT DEFAULT 'SOS Alert',is_resolved BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS communities(id TEXT PRIMARY KEY,creator_id TEXT REFERENCES users(id),name TEXT NOT NULL,description TEXT DEFAULT '',cover_image TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS community_members(id TEXT PRIMARY KEY,community_id TEXT REFERENCES communities(id) ON DELETE CASCADE,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,role TEXT DEFAULT 'MEMBER',joined_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(community_id, user_id));
+    CREATE TABLE IF NOT EXISTS community_posts(id TEXT PRIMARY KEY,community_id TEXT REFERENCES communities(id) ON DELETE CASCADE,author_id TEXT REFERENCES users(id) ON DELETE CASCADE,content TEXT NOT NULL,media_url TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
   `;
   await query(sql);
   console.log('✅ PostgreSQL schema ready');
@@ -441,6 +444,89 @@ const sosAlerts = {
     if(USE_PG){await query('INSERT INTO sos_alerts(id,user_id,latitude,longitude,booking_id,message) VALUES($1,$2,$3,$4,$5,$6)',[id,data.userId,data.latitude,data.longitude,data.bookingId||null,data.message||'SOS Alert']);return{id,...data,isResolved:false,createdAt:now()};}
     const s=loadStore('sos_alerts'); const a={id,...data,isResolved:false,createdAt:now()}; s.push(a); saveStore('sos_alerts',s); return a;
   },
+};
+
+// ── COMMUNITIES ──
+const _enrichCommunity = async(c) => {
+  if(!c)return null;
+  const mems = USE_PG ? await query(`SELECT * FROM community_members WHERE community_id=$1`,[c.id]) : loadStore('community_members').filter(m=>m.communityId===c.id);
+  const posts = USE_PG ? await query(`SELECT * FROM community_posts WHERE community_id=$1`,[c.id]) : loadStore('community_posts').filter(p=>p.communityId===c.id);
+  const creator = await users.findById(c.creatorId||c.creator_id);
+  const base = {...c, creatorId: c.creatorId||c.creator_id, coverImage: c.coverImage||c.cover_image, createdAt: c.createdAt||c.created_at};
+  return {...base, creator: creator ? {id:creator.id, fullName:creator.fullName, avatarUrl:creator.avatarUrl} : null, _count: { members: mems.length, posts: posts.length }};
+};
+const communities = {
+  async findMany(filters={}) {
+    if(USE_PG) {
+      const rs=await query(`SELECT * FROM communities ORDER BY created_at DESC`);
+      return Promise.all(rs.map(_enrichCommunity));
+    }
+    return Promise.all(loadStore('communities').sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(_enrichCommunity));
+  },
+  async findById(id) {
+    if(USE_PG){const r=(await query(`SELECT * FROM communities WHERE id=$1`,[id]))[0]; return _enrichCommunity(r);}
+    return _enrichCommunity(loadStore('communities').find(c=>c.id===id)||null);
+  },
+  async create(data) {
+    const id=uuid();
+    if(USE_PG){
+      await query(`INSERT INTO communities(id,creator_id,name,description,cover_image) VALUES($1,$2,$3,$4,$5)`,[id,data.creatorId,data.name,data.description||'',data.coverImage||null]);
+    } else {
+      const s=loadStore('communities');
+      s.push({id,creatorId:data.creatorId,name:data.name,description:data.description||'',coverImage:data.coverImage||null,createdAt:now(),updatedAt:now()});
+      saveStore('communities',s);
+    }
+    await communityMembers.join(id, data.creatorId, 'ADMIN');
+    return this.findById(id);
+  }
+};
+
+const communityMembers = {
+  async findByCommunity(cid) {
+    if(USE_PG){
+      const rs=await query(`SELECT cm.*, u.full_name, u.avatar_url FROM community_members cm JOIN users u ON u.id=cm.user_id WHERE cm.community_id=$1`,[cid]);
+      return rs.map(r=>({id:r.id, communityId:r.community_id, userId:r.user_id, role:r.role, joinedAt:r.joined_at, user:{id:r.user_id, fullName:r.full_name, avatarUrl:r.avatar_url}}));
+    }
+    const mems = loadStore('community_members').filter(m=>m.communityId===cid);
+    return Promise.all(mems.map(async m=>{const u=await users.findById(m.userId); return {...m, user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
+  },
+  async join(cid, uid, role='MEMBER') {
+    if(USE_PG){
+      const ex=(await query(`SELECT * FROM community_members WHERE community_id=$1 AND user_id=$2`,[cid,uid]))[0];
+      if(ex)return ex;
+      return (await query(`INSERT INTO community_members(id,community_id,user_id,role) VALUES($1,$2,$3,$4) RETURNING *`,[uuid(),cid,uid,role]))[0];
+    }
+    const s=loadStore('community_members');
+    let m=s.find(x=>x.communityId===cid && x.userId===uid);
+    if(!m){ m={id:uuid(),communityId:cid,userId:uid,role,joinedAt:now()}; s.push(m); saveStore('community_members',s); }
+    return m;
+  },
+  async leave(cid, uid) {
+    if(USE_PG) return query(`DELETE FROM community_members WHERE community_id=$1 AND user_id=$2`,[cid,uid]);
+    const s=loadStore('community_members'); saveStore('community_members', s.filter(m=>!(m.communityId===cid&&m.userId===uid)));
+  }
+};
+
+const communityPosts = {
+  async findByCommunity(cid) {
+    if(USE_PG){
+      const rs=await query(`SELECT p.*, u.full_name, u.avatar_url FROM community_posts p JOIN users u ON u.id=p.author_id WHERE p.community_id=$1 ORDER BY p.created_at DESC`,[cid]);
+      return rs.map(r=>({id:r.id, communityId:r.community_id, authorId:r.author_id, content:r.content, mediaUrl:r.media_url, createdAt:r.created_at, author:{id:r.author_id, fullName:r.full_name, avatarUrl:r.avatar_url}}));
+    }
+    const posts = loadStore('community_posts').filter(p=>p.communityId===cid).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+    return Promise.all(posts.map(async p=>{const u=await users.findById(p.authorId); return {...p, author:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
+  },
+  async create(data) {
+    const id=uuid();
+    if(USE_PG){
+      await query(`INSERT INTO community_posts(id,community_id,author_id,content,media_url) VALUES($1,$2,$3,$4,$5)`,[id,data.communityId,data.authorId,data.content,data.mediaUrl||null]);
+    } else {
+      const s=loadStore('community_posts');
+      s.push({id,communityId:data.communityId,authorId:data.authorId,content:data.content,mediaUrl:data.mediaUrl||null,createdAt:now()});
+      saveStore('community_posts',s);
+    }
+    return id;
+  }
 };
 
 module.exports = { users, guideProfiles, travelerProfiles, bookings, groupTours, groupTourMembers, reels, messages, reviews, notifications, hiddenGems, walletTransactions, sosAlerts, initSchema, USE_PG, follows: null }; // follows added below

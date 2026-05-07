@@ -60,6 +60,7 @@ app.use('/api/sos',           require('./routes/sos.routes'));
 app.use('/api/friends',       require('./routes/friends.routes'));
 app.use('/api/upload',        require('./routes/upload.routes'));
 app.use('/api/chat',          require('./routes/chat.routes'));
+app.use('/api/communities',   require('./routes/community.routes'));
 
 app.get('/health', (req, res) => res.json({
   status: 'ok', app: 'LocalLens API', version: '2.0.0',
