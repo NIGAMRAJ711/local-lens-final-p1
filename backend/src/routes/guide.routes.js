@@ -44,7 +44,19 @@ router.get('/dashboard/stats', protect, async (req, res) => {
     const week = txns.filter(t=>new Date(t.createdAt||t.created_at)>=weekStart).reduce((s,t)=>s+parseFloat(t.amount||0),0);
     const month = txns.filter(t=>new Date(t.createdAt||t.created_at)>=monthStart).reduce((s,t)=>s+parseFloat(t.amount||0),0);
     const total = txns.reduce((s,t)=>s+parseFloat(t.amount||0),0);
-    res.json({ stats:{ walletBalance:guide.walletBalance||0, totalBookings:guide.totalBookings||0, avgRating:guide.avgRating||0, totalReviews:guide.totalReviews||0, isAvailable:guide.isAvailable||false }, earnings:{today,week,month,total} });
+    
+    // Calculate last 7 days earnings for chart
+    const last7Days = Array.from({length: 7}).map((_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - (6 - i)); d.setHours(0,0,0,0);
+      return { date: d.toISOString().split('T')[0], amount: 0 };
+    });
+    txns.forEach(t => {
+      const dateStr = new Date(t.createdAt||t.created_at).toISOString().split('T')[0];
+      const dayIndex = last7Days.findIndex(d => d.date === dateStr);
+      if (dayIndex !== -1) last7Days[dayIndex].amount += parseFloat(t.amount||0);
+    });
+    
+    res.json({ stats:{ walletBalance:guide.walletBalance||0, totalBookings:guide.totalBookings||0, avgRating:guide.avgRating||0, totalReviews:guide.totalReviews||0, isAvailable:guide.isAvailable||false }, earnings:{today,week,month,total, last7Days} });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

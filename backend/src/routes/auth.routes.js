@@ -71,7 +71,7 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
     const user = await users.findByEmail(email);
-    if (!user) return res.json({ message: 'If that email is registered, a reset link has been sent.' });
+    if (!user) return res.status(404).json({ error: 'No account found with this email' });
     const resetToken = jwt.sign({ userId: user.id, purpose: 'reset' }, JWT_SECRET, { expiresIn: '1h' });
     const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
     // Try email if configured

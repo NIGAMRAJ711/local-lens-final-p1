@@ -36,8 +36,8 @@ export default function MapPage() {
 
       if (mapRef.current && !leafletMap.current) {
         leafletMap.current = Lmod.map(mapRef.current).setView([20.5937, 78.9629], 5);
-        Lmod.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        Lmod.tileLayer('http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}', {
+          attribution: '© Google Maps',
           maxZoom: 19,
         }).addTo(leafletMap.current);
 

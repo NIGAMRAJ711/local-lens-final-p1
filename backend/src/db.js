@@ -276,10 +276,11 @@ const _enrichTour = async(t) => {
 };
 const groupTours = {
   async findMany(q={}) {
-    const {city,minPrice,maxPrice}=q;
+    const {city,category,minPrice,maxPrice}=q;
     if(USE_PG){
       let sql=`SELECT * FROM group_tours WHERE is_active=true`; const p=[]; let i=1;
       if(city){sql+=` AND LOWER(city) LIKE LOWER($${i++})`;p.push(`%${city}%`);}
+      if(category){sql+=` AND $${i++}=ANY(category)`;p.push(category);}
       if(minPrice){sql+=` AND price_per_person>=$${i++}`;p.push(parseFloat(minPrice));}
       if(maxPrice){sql+=` AND price_per_person<=$${i++}`;p.push(parseFloat(maxPrice));}
       sql+=' ORDER BY date ASC';
@@ -287,6 +288,7 @@ const groupTours = {
     }
     let s=loadStore('group_tours').filter(t=>t.isActive!==false);
     if(city)s=s.filter(t=>t.city?.toLowerCase().includes(city.toLowerCase()));
+    if(category)s=s.filter(t=>(t.category||[]).includes(category));
     if(minPrice)s=s.filter(t=>t.pricePerPerson>=parseFloat(minPrice));
     if(maxPrice)s=s.filter(t=>t.pricePerPerson<=parseFloat(maxPrice));
     return Promise.all(s.sort((a,b)=>new Date(a.date)-new Date(b.date)).map(_enrichTour));

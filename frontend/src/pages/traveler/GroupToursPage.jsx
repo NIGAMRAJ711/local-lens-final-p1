@@ -83,13 +83,20 @@ export default function GroupToursPage() {
 
   const handleShare = async (tour) => {
     const text = `Join "${tour.title}" in ${tour.city} on ${formatTourDate(tour.date)} — ₹${tour.pricePerPerson}/person!`;
+    const url = window.location.href;
     try {
-      if (navigator.share) await navigator.share({ title: tour.title, text, url: window.location.href });
-      else {
-        await navigator.clipboard.writeText(text + ' ' + window.location.href);
-        toast.success('Tour link copied!');
+      if (navigator.share && window.isSecureContext) {
+        await navigator.share({ title: tour.title, text, url });
+        toast.success('Tour shared successfully!');
+      } else {
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        toast.success('Tour link copied to clipboard!');
       }
-    } catch {}
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        navigator.clipboard.writeText(`${text} ${url}`).then(() => toast.success('Tour link copied to clipboard!'));
+      }
+    }
   };
 
   const handleCoverUpload = async (e) => {
