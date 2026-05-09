@@ -83,6 +83,24 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
+  const enablePushNotifications = async () => {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      toast.error('Push notifications are not supported in this browser');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification('LocalLens', {
+        body: "Push notifications enabled! You'll get alerts for bookings and messages.",
+        icon: '/favicon.ico',
+        badge: '/favicon.ico',
+      });
+      localStorage.setItem('pushEnabled', 'true');
+      toast.success('Push notifications enabled');
+    }
+  };
+
   return (
     <Layout title="Notifications">
       <div className="max-w-2xl mx-auto">
@@ -99,6 +117,9 @@ export default function NotificationsPage() {
               <CheckCheck className="w-4 h-4" /> Mark all read
             </button>
           )}
+          <button onClick={enablePushNotifications} className="ml-2 text-sm text-gray-700 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
+            Enable Push
+          </button>
         </div>
 
         {loading ? (

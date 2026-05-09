@@ -1,6 +1,7 @@
+/** Guide routes: discovery, recommendations, profiles, availability, analytics, and hidden gems. */
 const express = require('express');
 const router = express.Router();
-const { guideProfiles, reviews, reels, hiddenGems, walletTransactions } = require('../db');
+const { guideProfiles, travelerProfiles, reviews, reels, hiddenGems, walletTransactions, USE_PG, query } = require('../db');
 
 // Fallback city coordinates for major Indian cities
 const CITY_COORDS = {
@@ -20,6 +21,18 @@ function getCityCoords(city) {
 }
 const { protect } = require('../middleware/error.middleware');
 
+function calculateBadges(guide, reviewCount = 0) {
+  const badges = [];
+  if ((guide.avgRating || 0) >= 4.8 && reviewCount >= 10) badges.push({ id: 'top_rated', label: 'Top Rated', color: 'yellow' });
+  if ((guide.totalBookings || 0) >= 50) badges.push({ id: 'veteran', label: 'Veteran Guide', color: 'orange' });
+  if ((guide.totalBookings || 0) >= 5) badges.push({ id: 'rising_star', label: 'Rising Star', color: 'blue' });
+  if (guide.isAvailable) badges.push({ id: 'available_now', label: 'Available Now', color: 'green' });
+  if (guide.isPhotographer) badges.push({ id: 'photographer', label: 'Photographer', color: 'purple' });
+  if (guide.providesCab) badges.push({ id: 'cab', label: 'Cab Service', color: 'teal' });
+  if ((guide.languages || []).length >= 3) badges.push({ id: 'multilingual', label: 'Multilingual', color: 'pink' });
+  return badges;
+}
+
 router.get('/', async (req, res) => {
   try {
     const [guides, total] = await Promise.all([
@@ -27,7 +40,7 @@ router.get('/', async (req, res) => {
       guideProfiles.countMany(req.query),
     ]);
     const { page=1, limit=12 } = req.query;
-    res.json({ guides, total, pagination: { page:parseInt(page), limit:parseInt(limit), total, pages:Math.ceil(total/parseInt(limit)) } });
+    res.json({ guides: guides.map(g => ({ ...g, badges: calculateBadges(g, g.totalReviews) })), total, pagination: { page:parseInt(page), limit:parseInt(limit), total, pages:Math.ceil(total/parseInt(limit)) } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -48,6 +61,26 @@ router.get('/dashboard/stats', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.get('/recommend', protect, async (req, res) => {
+  try {
+    const traveler = await travelerProfiles.findByUserId(req.user.id);
+    const allGuides = await guideProfiles.findMany({ limit: 100 });
+    const interests = traveler?.interests || [];
+    const homeCity = traveler?.homeCity || '';
+    const recommendations = allGuides.map(guide => {
+      let score = 0;
+      if (homeCity && guide.city?.toLowerCase() === homeCity.toLowerCase()) score += 30;
+      const overlap = interests.filter(i => (guide.expertiseTags || []).some(e => e.toLowerCase().includes(i.toLowerCase())));
+      score += overlap.length * 20;
+      score += (guide.avgRating || 0) * 10;
+      if (guide.isAvailable) score += 15;
+      score += Math.min(guide.totalReviews || 0, 5) * 3;
+      return { ...guide, badges: calculateBadges(guide, guide.totalReviews), recommendScore: Math.round(score) };
+    }).sort((a, b) => b.recommendScore - a.recommendScore).slice(0, 5);
+    res.json({ recommendations });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const guide = await guideProfiles.findById(req.params.id);
@@ -57,7 +90,7 @@ router.get('/:id', async (req, res) => {
       reels.findByUser(guide.userId),
       hiddenGems.findByGuide(guide.id),
     ]);
-    res.json({ guide:{ ...guide, hiddenGems:gems }, reviews:guideReviews, reels:guideReels });
+    res.json({ guide:{ ...guide, hiddenGems:gems, badges: calculateBadges(guide, guideReviews.length || guide.totalReviews) }, reviews:guideReviews, reels:guideReels });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -140,9 +173,8 @@ router.patch('/cover-image', protect, async (req, res) => {
 // ─── Availability ─────────────────────────────────────────────────────────────
 router.get('/:id/availability', async (req, res) => {
   try {
-    if (require('../db').USE_PG) {
-      const { query } = require('../db');
-      const rows = await query('SELECT * FROM guide_availability WHERE guide_id= AND date>=CURRENT_DATE ORDER BY date,start_time', [req.params.id]);
+    if (USE_PG) {
+      const rows = await query('SELECT * FROM guide_availability WHERE guide_id=$1 AND date>=CURRENT_DATE ORDER BY date,start_time', [req.params.id]);
       return res.json({ slots: rows.map(r => ({ id:r.id, guideId:r.guide_id, date:r.date, startTime:r.start_time, endTime:r.end_time, isBooked:r.is_booked })) });
     }
     res.json({ slots: [] });
@@ -155,12 +187,11 @@ router.post('/availability', protect, async (req, res) => {
     if (!guide) return res.status(403).json({ error: 'Guide profile required' });
     const { date, startTime, endTime } = req.body;
     if (!date || !startTime) return res.status(400).json({ error: 'date and startTime required' });
-    if (require('../db').USE_PG) {
-      const { query } = require('../db');
+    if (USE_PG) {
       const { v4: uuidv4 } = require('uuid');
       const id = uuidv4();
-      await query('INSERT INTO guide_availability(id,guide_id,date,start_time,end_time) VALUES(,,,,)', [id, guide.id, date, startTime, endTime||'']);
-      const row = (await query('SELECT * FROM guide_availability WHERE id=', [id]))[0];
+      await query('INSERT INTO guide_availability(id,guide_id,date,start_time,end_time) VALUES($1,$2,$3,$4,$5)', [id, guide.id, date, startTime, endTime||'']);
+      const row = (await query('SELECT * FROM guide_availability WHERE id=$1', [id]))[0];
       return res.status(201).json({ slot: { id:row.id, guideId:row.guide_id, date:row.date, startTime:row.start_time, endTime:row.end_time, isBooked:row.is_booked } });
     }
     res.status(201).json({ slot: { id: Date.now().toString(), guideId: guide.id, date, startTime, endTime: endTime||'', isBooked: false } });
@@ -171,9 +202,8 @@ router.delete('/availability/:slotId', protect, async (req, res) => {
   try {
     const guide = await guideProfiles.findByUserId(req.user.id);
     if (!guide) return res.status(403).json({ error: 'Guide profile required' });
-    if (require('../db').USE_PG) {
-      const { query } = require('../db');
-      await query('DELETE FROM guide_availability WHERE id= AND guide_id=', [req.params.slotId, guide.id]);
+    if (USE_PG) {
+      await query('DELETE FROM guide_availability WHERE id=$1 AND guide_id=$2', [req.params.slotId, guide.id]);
     }
     res.json({ message: 'Slot deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -181,9 +211,8 @@ router.delete('/availability/:slotId', protect, async (req, res) => {
 
 router.patch('/availability/:slotId/block', protect, async (req, res) => {
   try {
-    if (require('../db').USE_PG) {
-      const { query } = require('../db');
-      await query('UPDATE guide_availability SET is_booked=true WHERE id=', [req.params.slotId]);
+    if (USE_PG) {
+      await query('UPDATE guide_availability SET is_booked=true WHERE id=$1', [req.params.slotId]);
     }
     res.json({ message: 'Slot blocked' });
   } catch (err) { res.status(500).json({ error: err.message }); }

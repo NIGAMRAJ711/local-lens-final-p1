@@ -155,13 +155,18 @@ export default function MapPage() {
   // Live guide location via socket
   useEffect(() => {
     if (!socket || !L) return;
-    socket.on('guide:location-updated', ({ guideId, latitude, longitude }) => {
+    const handleLocation = ({ guideId, latitude, longitude }) => {
       setGuides(prev => prev.map(g => g.userId === guideId ? { ...g, latitude, longitude } : g));
       if (markersRef.current[`guide_${guideId}`] && leafletMap.current) {
         markersRef.current[`guide_${guideId}`].setLatLng([latitude, longitude]);
       }
-    });
-    return () => socket.off('guide:location-updated');
+    };
+    socket.on('guide:location-updated', handleLocation);
+    socket.on('guide:locationUpdate', handleLocation);
+    return () => {
+      socket.off('guide:location-updated', handleLocation);
+      socket.off('guide:locationUpdate', handleLocation);
+    };
   }, [socket, L]);
 
   // Update own guide location
@@ -171,7 +176,10 @@ export default function MapPage() {
     navigator.geolocation.getCurrentPosition(async pos => {
       try {
         await guideApi.updateLocation(pos.coords.latitude, pos.coords.longitude);
-        if (socket) socket.emit('guide:location-update', { latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        if (socket) {
+          socket.emit('guide:location-update', { latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+          socket.emit('guide:updateLocation', { latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        }
       } catch {}
     });
   }, [user, socket]);

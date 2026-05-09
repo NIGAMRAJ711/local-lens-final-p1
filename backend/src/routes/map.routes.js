@@ -1,3 +1,4 @@
+/** Map routes: guide pins and hidden-gem markers for the interactive map. */
 const express = require('express');
 const router = express.Router();
 const { guideProfiles, hiddenGems, USE_PG, query } = require('../db');

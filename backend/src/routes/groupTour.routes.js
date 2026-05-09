@@ -1,3 +1,4 @@
+/** Group tour routes: public tour discovery, creation, joining, and user joined tours. */
 const express = require('express');
 const router = express.Router();
 const { groupTours, groupTourMembers, guideProfiles, notifications, users } = require('../db');

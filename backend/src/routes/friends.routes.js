@@ -1,3 +1,4 @@
+/** Friend routes: follow requests, accept/decline flows, friendship status, and profiles. */
 const express = require('express');
 const router = express.Router();
 const { users, bookings, guideProfiles, reels, notifications } = require('../db');

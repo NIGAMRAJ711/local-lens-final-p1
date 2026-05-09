@@ -1,3 +1,4 @@
+/** Review routes: traveler reviews, guide responses, and safety reports. */
 const express = require('express');
 const router = express.Router();
 const { reviews, bookings, guideProfiles, notifications, users } = require('../db');

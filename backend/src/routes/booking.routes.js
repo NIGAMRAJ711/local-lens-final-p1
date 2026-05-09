@@ -1,10 +1,24 @@
+/** Booking routes: traveler bookings, guide status changes, completion, cancellation, and refunds. */
 const express = require('express');
 const router = express.Router();
+const { z } = require('zod');
 const { bookings, guideProfiles, travelerProfiles, notifications } = require('../db');
 const { protect } = require('../middleware/error.middleware');
 
 const PRICE_MAP = { ONE_HOUR: 'hourlyRate', HALF_DAY: 'halfDayRate', FULL_DAY: 'fullDayRate' };
 const FEE = parseFloat(process.env.PLATFORM_FEE_PERCENT||10) / 100;
+const bookingSchema = z.object({
+  guideUserId: z.string().min(1),
+  duration: z.string().optional(),
+  bookingType: z.string().optional(),
+  date: z.string().min(1),
+  startTime: z.string().min(1),
+  meetupLocation: z.string().optional(),
+  specialRequests: z.string().optional(),
+  numberOfPeople: z.coerce.number().int().positive().optional(),
+  hotelPreference: z.string().optional(),
+  restaurantPreference: z.string().optional(),
+});
 
 router.get('/my', protect, async (req, res) => {
   try {
@@ -25,8 +39,9 @@ router.get('/my', protect, async (req, res) => {
 
 router.post('/', protect, async (req, res) => {
   try {
-    const { guideUserId, duration, bookingType, date, startTime, meetupLocation, specialRequests, numberOfPeople, hotelPreference, restaurantPreference } = req.body;
-    if (!guideUserId || !date || !startTime) return res.status(400).json({ error: 'guideUserId, date and startTime required' });
+    const parsed = bookingSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+    const { guideUserId, duration, bookingType, date, startTime, meetupLocation, specialRequests, numberOfPeople, hotelPreference, restaurantPreference } = parsed.data;
     const guide = await guideProfiles.findByUserId(guideUserId);
     if (!guide) return res.status(404).json({ error: 'Guide not found' });
     const priceField = PRICE_MAP[duration] || 'hourlyRate';
@@ -64,6 +79,7 @@ router.patch('/:id/complete', protect, async (req, res) => {
     const booking = await bookings.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (booking.guideId !== req.user.id) return res.status(403).json({ error: 'Only guide can complete' });
+    if (booking.status !== 'CONFIRMED') return res.status(400).json({ error: 'Only confirmed bookings can be completed' });
     const completed = await bookings.complete(req.params.id);
     await notifications.create({ userId: booking.travelerId, title: '🎉 Tour Completed!', body: `Your tour with ${req.user.fullName} is marked complete. Please leave a review!`, type: 'BOOKING' });
     await notifications.create({ userId: req.user.id, title: '💰 Earnings Added!', body: `Rs${Math.floor(booking.basePrice*0.9)} added to your wallet for completing the tour.`, type: 'PAYMENT' });

@@ -21,6 +21,7 @@ import FriendsPage from './pages/FriendsPage';
 import UserProfilePage from './pages/UserProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import GuideRegisterPage from './pages/GuideRegisterPage';
+import LandingPage from './pages/LandingPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -45,6 +46,7 @@ export default function App() {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/" element={<LandingPage />} />
 
       {/* Protected - Traveler */}
       <Route path="/dashboard" element={<ProtectedRoute><TravelerDashboard /></ProtectedRoute>} />
@@ -66,7 +68,6 @@ export default function App() {
       <Route path="/guide-dashboard" element={<GuideRoute><GuideDashboard /></GuideRoute>} />
 
       {/* Default redirect */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

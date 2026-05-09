@@ -1,9 +1,12 @@
+/** Authentication routes: registration, login, refresh, logout, and password recovery. */
 require('dotenv').config();
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { z } = require('zod');
 const { users, guideProfiles, travelerProfiles, notifications } = require('../db');
+const { protect, blacklistToken } = require('../middleware/error.middleware');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'locallens-secret-2024';
 const JWT_REFRESH = process.env.JWT_REFRESH_SECRET || 'locallens-refresh-2024';
@@ -14,6 +17,15 @@ function makeTokens(userId) {
   return { accessToken, refreshToken };
 }
 
+const usedRefreshTokens = new Set();
+const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  fullName: z.string().min(2).max(100),
+  phone: z.string().optional().nullable(),
+  role: z.enum(['TRAVELER', 'GUIDE', 'BOTH']).optional(),
+});
+
 function safeUser(u) {
   if (!u) return null;
   const { passwordHash, ...safe } = u;
@@ -23,15 +35,15 @@ function safeUser(u) {
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, fullName, phone, role } = req.body;
-    if (!email || !password || !fullName) return res.status(400).json({ error: 'email, password and fullName are required' });
-    if (!phone) return res.status(400).json({ error: 'Phone number is required' });
-    if (!/^(\+91|91)?[6-9]\d{9}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid 10-digit Indian mobile number' });
-    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    const parsed = registerSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+    const { email, password, fullName, phone, role } = parsed.data;
+    const compactPhone = phone ? String(phone).replace(/\s/g, '') : '';
+    if (compactPhone && !/^\+?[\d-]{7,15}$/.test(compactPhone)) return res.status(400).json({ error: 'Enter a valid phone number' });
     const existing = await users.findByEmail(email);
     if (existing) return res.status(409).json({ error: 'Email already registered' });
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await users.create({ email, phone: phone||null, passwordHash, fullName, role: role||'TRAVELER' });
+    const user = await users.create({ email, phone: compactPhone || null, passwordHash, fullName, role: role||'TRAVELER' });
     // Auto-create traveler profile
     await travelerProfiles.create(user.id);
     // Welcome notification
@@ -61,10 +73,18 @@ router.post('/refresh', async (req, res) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
+    if (usedRefreshTokens.has(refreshToken)) return res.status(401).json({ error: 'Refresh token already used' });
     const decoded = jwt.verify(refreshToken, JWT_REFRESH);
+    usedRefreshTokens.add(refreshToken);
     const { accessToken, refreshToken: newRefresh } = makeTokens(decoded.userId);
     res.json({ accessToken, refreshToken: newRefresh });
   } catch { res.status(401).json({ error: 'Invalid refresh token' }); }
+});
+
+// POST /api/auth/logout
+router.post('/logout', protect, (req, res) => {
+  blacklistToken(req.token);
+  res.json({ message: 'Logged out successfully' });
 });
 
 // POST /api/auth/forgot-password

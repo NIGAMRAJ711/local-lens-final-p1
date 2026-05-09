@@ -21,15 +21,19 @@ class ApiClient {
   }
 
   async request(method, path, body = null, isFormData = false) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const options = {
       method,
       headers: this.getHeaders(isFormData),
       credentials: 'include',
+      signal: controller.signal,
     };
     if (body) options.body = isFormData ? body : JSON.stringify(body);
 
     try {
       const res = await fetch(`${this.base}${path}`, options);
+      clearTimeout(timeout);
 
       if (res.status === 401) {
         const refreshed = await this.refreshToken();
@@ -42,7 +46,9 @@ class ApiClient {
           }
           return retryRes.json();
         } else {
-          localStorage.clear();
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user');
           window.location.href = '/login';
           return;
         }
@@ -52,6 +58,8 @@ class ApiClient {
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       return data;
     } catch (err) {
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') throw new Error('Request timed out. Please try again.');
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         throw new Error('Cannot connect to server. Please check your connection.');
       }
@@ -95,6 +103,7 @@ export const api = new ApiClient();
 export const authApi = {
   register: (d) => api.post('/auth/register', d),
   login: (d) => api.post('/auth/login', d),
+  logout: () => api.post('/auth/logout', {}),
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
 };
@@ -111,6 +120,7 @@ export const userApi = {
 // Guides
 export const guideApi = {
   search: (params) => api.get('/guides?' + new URLSearchParams(params).toString()),
+  recommend: () => api.get('/guides/recommend'),
   getById: (id) => api.get(`/guides/${id}`),
   register: (d) => api.post('/guides/register', d),
   updateAvailability: (isAvailable) => api.patch('/guides/availability', { isAvailable }),
@@ -129,6 +139,7 @@ export const bookingApi = {
   getMyBookings: (params) => api.get('/bookings/my?' + new URLSearchParams(params).toString()),
   updateStatus: (id, status) => api.patch(`/bookings/${id}/status`, { status }),
   complete: (id) => api.patch(`/bookings/${id}/complete`),
+  reject: (id, reason) => api.patch(`/bookings/${id}/reject`, { reason }),
 };
 
 // Reels
@@ -137,6 +148,8 @@ export const reelApi = {
   upload: (d) => api.post('/reels', d),
   like: (id) => api.post(`/reels/${id}/like`),
   view: (id) => api.post(`/reels/${id}/view`),
+  getComments: (id) => api.get(`/reels/${id}/comments`),
+  comment: (id, content) => api.post(`/reels/${id}/comment`, { content }),
 };
 
 // Group Tours
@@ -204,5 +217,3 @@ export const bucketListApi = {
   complete: (id) => api.patch(`/users/bucket-list/${id}/complete`),
   remove: (id) => api.delete(`/users/bucket-list/${id}`),
 };
-
-

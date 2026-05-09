@@ -50,8 +50,11 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
-  const logout = () => {
-    localStorage.clear(); // clears accessToken, refreshToken, user, theme
+  const logout = async () => {
+    try { await authApi.logout(); } catch {}
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
     setUser(null);
   };
 

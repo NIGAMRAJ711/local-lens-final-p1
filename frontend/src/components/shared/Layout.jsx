@@ -2,7 +2,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useState, useEffect } from 'react';
-import { notificationApi } from '../../lib/api';
+import { bookingApi, notificationApi, api } from '../../lib/api';
+import { useSocket } from '../../context/SocketContext';
 import {
   Home, Compass, Users, Film, Map, MessageCircle, Bell, User,
   Settings, LogOut, Globe, UserCheck, Menu, X, Plus, ArrowRightLeft,
@@ -12,6 +13,7 @@ import {
 export default function Layout({ children, title }) {
   const { user, logout, switchRole, refreshUser } = useAuth();
   const toast = useToast();
+  const { socket } = useSocket();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -20,6 +22,7 @@ export default function Layout({ children, title }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [switching, setSwitching] = useState(false);
   const [dark, setDark] = useState(false);
+  const [activeBooking, setActiveBooking] = useState(null);
 
   // Apply saved theme on mount
   useEffect(() => {
@@ -34,6 +37,12 @@ export default function Layout({ children, title }) {
   useEffect(() => {
     notificationApi.getAll().then(d => {
       setUnreadCount(d.notifications?.filter(n => !n.isRead).length || 0);
+    }).catch(() => {});
+  }, [location.pathname]);
+
+  useEffect(() => {
+    bookingApi.getMyBookings({}).then(d => {
+      setActiveBooking((d.bookings || []).find(b => b.status === 'CONFIRMED') || null);
     }).catch(() => {});
   }, [location.pathname]);
 
@@ -86,6 +95,29 @@ export default function Layout({ children, title }) {
     } finally {
       setSwitching(false);
     }
+  };
+
+  const handleSOS = () => {
+    if (!activeBooking) return;
+    if (!navigator.geolocation) {
+      toast.error('Location is not available in this browser');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const payload = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          bookingId: activeBooking.id,
+          message: 'Emergency SOS from active booking',
+        };
+        await api.post('/sos', payload);
+        socket?.emit('sos:triggered', payload);
+        toast.success('Emergency alert sent. Help is on the way.');
+      } catch (err) {
+        toast.error(err.message || 'Failed to send SOS');
+      }
+    }, () => toast.error('Location access denied'));
   };
 
   return (
@@ -328,6 +360,15 @@ export default function Layout({ children, title }) {
         {title && <h1 className="text-2xl font-bold text-gray-900 mb-6">{title}</h1>}
         {children}
       </main>
+      {activeBooking && (
+        <button
+          onClick={handleSOS}
+          className="fixed bottom-20 right-4 z-50 bg-red-600 hover:bg-red-700 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg animate-pulse font-black"
+          title="Emergency SOS"
+        >
+          SOS
+        </button>
+      )}
     </div>
   );
 }

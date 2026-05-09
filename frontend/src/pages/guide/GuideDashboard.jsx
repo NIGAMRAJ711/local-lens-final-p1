@@ -107,6 +107,17 @@ export default function GuideDashboard() {
   const pendingBookings = bookings.filter(b => b.status === 'PENDING');
   const confirmedBookings = bookings.filter(b => b.status === 'CONFIRMED');
   const completedBookings = bookings.filter(b => b.status === 'COMPLETED');
+  const funnelTotal = Math.max(bookings.length, 1);
+  const earningsBars = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const label = format(d, 'EEE');
+    const value = completedBookings
+      .filter(b => b.updatedAt && new Date(b.updatedAt).toDateString() === d.toDateString())
+      .reduce((sum, b) => sum + (b.basePrice || 0) * 0.9, 0);
+    return { label, value };
+  });
+  const maxEarning = Math.max(...earningsBars.map(b => b.value), 1);
 
   return (
     <Layout>
@@ -162,6 +173,35 @@ export default function GuideDashboard() {
             <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
           </div>
         ))}
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-4 mb-6">
+        <div className="card p-4 md:col-span-2">
+          <h2 className="font-bold text-gray-900 mb-4">7-Day Earnings</h2>
+          <div className="h-36 flex items-end gap-3">
+            {earningsBars.map(b => (
+              <div key={b.label} className="flex-1 flex flex-col items-center gap-2">
+                <div className="w-full bg-green-100 rounded-t-lg relative" style={{ height: `${Math.max(8, (b.value / maxEarning) * 120)}px` }}>
+                  <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] text-gray-500">Rs{Math.round(b.value)}</span>
+                </div>
+                <span className="text-xs text-gray-500">{b.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card p-4">
+          <h2 className="font-bold text-gray-900 mb-4">Booking Funnel</h2>
+          {[
+            ['Pending', pendingBookings.length, 'bg-yellow-400'],
+            ['Confirmed', confirmedBookings.length, 'bg-green-500'],
+            ['Completed', completedBookings.length, 'bg-blue-500'],
+          ].map(([label, count, color]) => (
+            <div key={label} className="mb-3">
+              <div className="flex justify-between text-xs mb-1"><span>{label}</span><span>{count}</span></div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full ${color}`} style={{ width: `${(count / funnelTotal) * 100}%` }} /></div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">

@@ -4,7 +4,7 @@ import { reelApi, uploadApi, bucketListApi } from '../lib/api';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { Heart, Share2, Upload, X, Film, MapPin, UserPlus, UserCheck, Play, Pause, Volume2, VolumeX, ArrowLeft } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Upload, X, Film, MapPin, UserPlus, UserCheck, Play, Pause, Volume2, VolumeX, ArrowLeft } from 'lucide-react';
 
 const REEL_TYPES = ['GENERAL', 'GUIDE_PROMO', 'TRAVELER_EXPERIENCE', 'HIDDEN_GEM', 'FOOD_SPOT', 'VIEWPOINT'];
 
@@ -121,6 +121,10 @@ export default function ReelsPage() {
   const [followStatuses, setFollowStatuses] = useState({});
   const [muted, setMuted] = useState(false);
   const [playing, setPlaying] = useState(true);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [comments, setComments] = useState([]);
+  const [commentText, setCommentText] = useState('');
+  const [commentsLoading, setCommentsLoading] = useState(false);
   const containerRef = useRef(null);
   const videoRefs = useRef({});
   const touchStartY = useRef(0);
@@ -232,6 +236,41 @@ export default function ReelsPage() {
     } catch {}
   };
 
+  const openComments = async (reelId, e) => {
+    e.stopPropagation();
+    setCommentsOpen(true);
+    setCommentsLoading(true);
+    try {
+      const data = await reelApi.getComments(reelId);
+      setComments(data.comments || []);
+    } catch {
+      setComments([]);
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+
+  const submitComment = async (e) => {
+    e.preventDefault();
+    if (!commentText.trim() || !currentReel) return;
+    const optimistic = {
+      id: `temp-${Date.now()}`,
+      content: commentText.trim(),
+      createdAt: new Date().toISOString(),
+      user: { id: user?.id, fullName: user?.fullName, avatarUrl: user?.avatarUrl },
+    };
+    setComments(prev => [...prev, optimistic]);
+    setReels(rs => rs.map(r => r.id === currentReel.id ? { ...r, commentsCount: (r.commentsCount || 0) + 1 } : r));
+    setCommentText('');
+    try {
+      const data = await reelApi.comment(currentReel.id, optimistic.content);
+      setComments(prev => prev.map(c => c.id === optimistic.id ? data.comment : c));
+    } catch (err) {
+      setComments(prev => prev.filter(c => c.id !== optimistic.id));
+      toast.error(err.message);
+    }
+  };
+
   const handleVideoSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -248,7 +287,7 @@ export default function ReelsPage() {
       const formData = new FormData();
       formData.append('file', file);
       const token = localStorage.getItem('accessToken');
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const baseUrl = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
       const result = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.upload.onprogress = (ev) => {
@@ -399,6 +438,11 @@ export default function ReelsPage() {
               <span className="text-white text-xs font-medium">{currentReel?.likesCount || 0}</span>
             </button>
 
+            <button onClick={(e) => openComments(currentReel?.id, e)} className="flex flex-col items-center gap-1">
+              <MessageCircle className="w-7 h-7 text-white" />
+              <span className="text-white text-xs font-medium">{currentReel?.commentsCount || 0}</span>
+            </button>
+
             {/* Share */}
             <button onClick={(e) => handleShare(currentReel, e)} className="flex flex-col items-center gap-1">
               <Share2 className="w-7 h-7 text-white" />
@@ -518,6 +562,32 @@ export default function ReelsPage() {
                 </div>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {commentsOpen && currentReel && (
+        <div className="absolute inset-0 bg-black/60 flex items-end z-50" onClick={e => e.target === e.currentTarget && setCommentsOpen(false)}>
+          <div className="bg-white rounded-t-3xl w-full max-h-[70vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="font-bold">Comments</h2>
+              <button onClick={() => setCommentsOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {commentsLoading ? <div className="animate-spin w-6 h-6 border-4 border-green-500 border-t-transparent rounded-full mx-auto" /> : comments.length === 0 ? <p className="text-center text-gray-500 text-sm py-8">No comments yet</p> : comments.map(c => (
+                <div key={c.id} className="flex gap-3">
+                  {c.user?.avatarUrl ? <img src={c.user.avatarUrl} className="w-8 h-8 rounded-full object-cover" alt="" /> : <div className="w-8 h-8 rounded-full bg-green-500 text-white grid place-items-center text-xs font-bold">{c.user?.fullName?.[0]}</div>}
+                  <div>
+                    <p className="text-sm font-semibold">{c.user?.fullName || 'LocalLens user'}</p>
+                    <p className="text-sm text-gray-700">{c.content}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <form onSubmit={submitComment} className="p-4 border-t flex gap-2">
+              <input className="input-field text-sm flex-1" placeholder="Add a comment..." value={commentText} onChange={e => setCommentText(e.target.value)} />
+              <button className="btn-primary px-4 text-sm" type="submit">Post</button>
+            </form>
           </div>
         </div>
       )}

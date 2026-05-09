@@ -206,6 +206,15 @@ export default function GuideProfilePage() {
                   <Users className="w-3 h-3" />{friendCount} friend{friendCount !== 1 ? 's' : ''}
                 </p>
               )}
+              {guide.badges?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {guide.badges.map(b => (
+                    <span key={b.id} className="text-xs bg-green-50 text-green-700 border border-green-100 px-2 py-1 rounded-full font-semibold">
+                      {b.label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Action buttons */}

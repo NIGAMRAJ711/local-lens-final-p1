@@ -64,4 +64,3 @@ locallens-final/
 ├── frontend/         React 18 + Tailwind CSS
 └── start.sh          One-command launcher
 ```
-# local-lens-final-p1
