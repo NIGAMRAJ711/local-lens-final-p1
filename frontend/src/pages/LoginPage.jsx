@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Globe, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
   const [form, setForm] = useState({ email: '', password: '' });
@@ -13,17 +13,28 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    if (!authLoading && user) navigate('/dashboard', { replace: true });
+  }, [authLoading, navigate, user]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    if (!form.email.trim() || !form.password) {
+      const message = 'Please enter both email and password.';
+      setError(message);
+      toast.warning('Missing login details', message);
+      return;
+    }
     setLoading(true);
     try {
       const user = await login(form.email, form.password);
       toast.success(`Welcome back, ${user.fullName?.split(' ')[0]}! 👋`);
-      if (user.role === 'GUIDE') navigate('/guide-dashboard');
-      else navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError(err.message || 'Invalid email or password');
+      const message = err.message || 'Invalid email or password';
+      setError(message);
+      toast.warning('Login failed', message);
     } finally {
       setLoading(false);
     }
@@ -44,7 +55,7 @@ export default function LoginPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input type="email" className="input-field" placeholder="you@example.com"
-              value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+              value={form.email} onChange={e => { setError(''); setForm(f => ({ ...f, email: e.target.value })); }} required />
           </div>
 
           <div>
@@ -52,7 +63,7 @@ export default function LoginPage() {
             <div className="relative">
               <input type={showPwd ? 'text' : 'password'} className="input-field pr-10"
                 placeholder="••••••••" value={form.password}
-                onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required />
+                onChange={e => { setError(''); setForm(f => ({ ...f, password: e.target.value })); }} required />
               <button type="button" onClick={() => setShowPwd(!showPwd)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                 {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -70,7 +81,7 @@ export default function LoginPage() {
             </div>
           )}
 
-          <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-base">
+          <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-base disabled:opacity-70">
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>

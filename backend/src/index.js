@@ -47,7 +47,23 @@ app.use(helmet({
     },
   },
 }));
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    const exactOrigins = [
+      FRONTEND_URL,
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://localhost:4173',
+      'https://local-lensfrontend.onrender.com',
+    ].filter(Boolean);
+    const allowed = exactOrigins.includes(origin) || allowedOrigins.some(item => item instanceof RegExp && item.test(origin));
+    return allowed ? callback(null, true) : callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -98,6 +114,14 @@ app.get('/health', (req, res) => res.json({
   status: 'ok', app: 'LocalLens API', version: '2.0.0',
   database: USE_PG ? 'PostgreSQL' : 'JSON files',
   frontend: FRONTEND_URL,
+}));
+
+app.get('/', (req, res) => res.json({
+  success: true,
+  status: 'ok',
+  app: 'LocalLens API',
+  message: 'Backend is running. Use /health for status or /api/* for API routes.',
+  health: '/health',
 }));
 
 // Serve built frontend in production

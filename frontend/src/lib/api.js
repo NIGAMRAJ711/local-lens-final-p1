@@ -1,11 +1,27 @@
 // Auto-detect API base URL
 // In dev: Vite proxy handles /api → localhost:5001
 // In production: Use VITE_API_URL or same origin
-const API_BASE = import.meta.env.VITE_API_URL
-  ? import.meta.env.VITE_API_URL + '/api'
-  : '/api';
+const DEFAULT_RENDER_API_ORIGIN = 'https://local-lens-finalbackend.onrender.com';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || '';
+function trimSlash(value = '') {
+  return value.replace(/\/+$/, '');
+}
+
+function getConfiguredApiOrigin() {
+  const configured = trimSlash(import.meta.env.VITE_API_URL || '');
+  if (configured) return configured.endsWith('/api') ? configured.slice(0, -4) : configured;
+
+  if (typeof window !== 'undefined') {
+    const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (!isLocal) return DEFAULT_RENDER_API_ORIGIN;
+  }
+
+  return '';
+}
+
+const API_ORIGIN = getConfiguredApiOrigin();
+const API_BASE = API_ORIGIN ? `${API_ORIGIN}/api` : '/api';
+const SOCKET_URL = API_ORIGIN;
 
 export { SOCKET_URL };
 
@@ -35,7 +51,7 @@ class ApiClient {
       const res = await fetch(`${this.base}${path}`, options);
       clearTimeout(timeout);
 
-      if (res.status === 401) {
+      if (res.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
         const refreshed = await this.refreshToken();
         if (refreshed) {
           options.headers = this.getHeaders(isFormData);
@@ -49,13 +65,21 @@ class ApiClient {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
           localStorage.removeItem('user');
-          window.location.href = '/login';
+          if (window.location.pathname !== '/login') window.location.href = '/login';
           return;
         }
       }
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      if (!res.ok) {
+        if (res.status === 401 && path === '/auth/login') {
+          throw new Error(data.error || 'Invalid email or password');
+        }
+        if (res.status === 404) {
+          throw new Error(data.error || 'Server endpoint not found. Please check the backend URL.');
+        }
+        throw new Error(data.error || data.message || `Request failed (${res.status})`);
+      }
       return data;
     } catch (err) {
       clearTimeout(timeout);
