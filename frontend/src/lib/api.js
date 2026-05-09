@@ -203,5 +203,3 @@ export const bucketListApi = {
   remove: (id) => api.delete(`/users/bucket-list/${id}`),
 };
 
-};
-
