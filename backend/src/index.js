@@ -3,8 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
-const { v4: uuidv4 } = require('uuid');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
@@ -35,59 +33,11 @@ const io = new Server(httpServer, {
 setupSocketIO(io);
 app.set('io', io);
 
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:", "blob:"],
-      mediaSrc: ["'self'", "https:", "blob:"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'", "wss:", "ws:", "https:"],
-    },
-  },
-}));
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin) return callback(null, true);
-    const exactOrigins = [
-      FRONTEND_URL,
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://localhost:4173',
-      'https://local-lensfrontend.onrender.com',
-    ].filter(Boolean);
-    const allowed = exactOrigins.includes(origin) || allowedOrigins.some(item => item instanceof RegExp && item.test(origin));
-    return allowed ? callback(null, true) : callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use((req, res, next) => {
-  req.requestId = uuidv4();
-  res.setHeader('X-Request-ID', req.requestId);
-  next();
-});
-app.use((req, res, next) => {
-  if (req.body && typeof req.body === 'object') {
-    delete req.body.__proto__;
-    delete req.body.constructor;
-    delete req.body.prototype;
-  }
-  next();
-});
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: 'Too many requests, try again later' },
-});
 
 // Serve uploaded files
 const uploadsDir = path.join(__dirname, '../uploads');
@@ -95,7 +45,7 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 
 // Routes
-app.use('/api/auth',          authLimiter, require('./routes/auth.routes'));
+app.use('/api/auth',          require('./routes/auth.routes'));
 app.use('/api/users',         require('./routes/user.routes'));
 app.use('/api/guides',        require('./routes/guide.routes'));
 app.use('/api/bookings',      require('./routes/booking.routes'));
@@ -109,19 +59,13 @@ app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/sos',           require('./routes/sos.routes'));
 app.use('/api/friends',       require('./routes/friends.routes'));
 app.use('/api/upload',        require('./routes/upload.routes'));
+app.use('/api/admin',         require('./routes/admin.routes'));
+app.use('/api/chat',          require('./routes/chat.routes'));
 
 app.get('/health', (req, res) => res.json({
   status: 'ok', app: 'LocalLens API', version: '2.0.0',
   database: USE_PG ? 'PostgreSQL' : 'JSON files',
   frontend: FRONTEND_URL,
-}));
-
-app.get('/', (req, res) => res.json({
-  success: true,
-  status: 'ok',
-  app: 'LocalLens API',
-  message: 'Backend is running. Use /health for status or /api/* for API routes.',
-  health: '/health',
 }));
 
 // Serve built frontend in production
@@ -135,7 +79,7 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-app.use('*', (req, res) => res.status(404).json({ success: false, error: 'Not found' }));
+app.use('*', (req, res) => res.status(404).json({ error: 'Not found' }));
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5001;
@@ -174,12 +118,3 @@ async function start() {
 }
 
 start().catch(err => { console.error('Fatal startup error:', err); process.exit(1); });
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  process.exit(1);
-});

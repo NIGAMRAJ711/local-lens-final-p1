@@ -17,6 +17,8 @@ export default function GuideDashboard() {
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
+  const [rejectingId, setRejectingId] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   useEffect(() => { loadData(); }, []);
 
@@ -49,15 +51,12 @@ export default function GuideDashboard() {
     }
   };
 
-  const [rejectingId, setRejectingId] = useState(null);
-  const [rejectReason, setRejectReason] = useState('');
-
   const handleBookingAction = async (bookingId, status) => {
     setActionLoading(l => ({ ...l, [bookingId]: status }));
     try {
       await bookingApi.updateStatus(bookingId, status);
       setBookings(bs => bs.map(b => b.id === bookingId ? { ...b, status } : b));
-      if (status === 'CONFIRMED') toast.success('Booking confirmed!', 'Traveller has been notified ✅');
+      if (status === 'CONFIRMED') toast.success('Booking confirmed! Traveller has been notified ✅');
       else toast.info('Booking declined');
     } catch (err) {
       toast.error(err.message);
@@ -68,21 +67,16 @@ export default function GuideDashboard() {
 
   const handleReject = async (bookingId) => {
     if (!rejectReason.trim()) { toast.error('Please enter a reason for rejection'); return; }
-    setActionLoading(l => ({ ...l, [bookingId]: 'rejecting' }));
+    setActionLoading(l => ({ ...l, [bookingId]: 'REJECTING' }));
     try {
-      await bookingApi.reject(bookingId, rejectReason);
+      await bookingApi.reject(bookingId, rejectReason.trim());
       setBookings(bs => bs.map(b => b.id === bookingId ? { ...b, status: 'CANCELLED' } : b));
       setRejectingId(null);
       setRejectReason('');
-      toast.info('Booking rejected', 'Traveller has been notified');
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setActionLoading(l => ({ ...l, [bookingId]: null }));
-    }
+      toast.info('Booking rejected. Traveler has been notified.');
+    } catch (err) { toast.error(err.message); }
+    finally { setActionLoading(l => ({ ...l, [bookingId]: null })); }
   };
-
-  const handleComplete = async (bookingId) => {
     setActionLoading(l => ({ ...l, [bookingId]: 'completing' }));
     try {
       const result = await bookingApi.complete(bookingId);
@@ -107,17 +101,6 @@ export default function GuideDashboard() {
   const pendingBookings = bookings.filter(b => b.status === 'PENDING');
   const confirmedBookings = bookings.filter(b => b.status === 'CONFIRMED');
   const completedBookings = bookings.filter(b => b.status === 'COMPLETED');
-  const funnelTotal = Math.max(bookings.length, 1);
-  const earningsBars = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const label = format(d, 'EEE');
-    const value = completedBookings
-      .filter(b => b.updatedAt && new Date(b.updatedAt).toDateString() === d.toDateString())
-      .reduce((sum, b) => sum + (b.basePrice || 0) * 0.9, 0);
-    return { label, value };
-  });
-  const maxEarning = Math.max(...earningsBars.map(b => b.value), 1);
 
   return (
     <Layout>
@@ -175,35 +158,6 @@ export default function GuideDashboard() {
         ))}
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4 mb-6">
-        <div className="card p-4 md:col-span-2">
-          <h2 className="font-bold text-gray-900 mb-4">7-Day Earnings</h2>
-          <div className="h-36 flex items-end gap-3">
-            {earningsBars.map(b => (
-              <div key={b.label} className="flex-1 flex flex-col items-center gap-2">
-                <div className="w-full bg-green-100 rounded-t-lg relative" style={{ height: `${Math.max(8, (b.value / maxEarning) * 120)}px` }}>
-                  <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] text-gray-500">Rs{Math.round(b.value)}</span>
-                </div>
-                <span className="text-xs text-gray-500">{b.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="card p-4">
-          <h2 className="font-bold text-gray-900 mb-4">Booking Funnel</h2>
-          {[
-            ['Pending', pendingBookings.length, 'bg-yellow-400'],
-            ['Confirmed', confirmedBookings.length, 'bg-green-500'],
-            ['Completed', completedBookings.length, 'bg-blue-500'],
-          ].map(([label, count, color]) => (
-            <div key={label} className="mb-3">
-              <div className="flex justify-between text-xs mb-1"><span>{label}</span><span>{count}</span></div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full ${color}`} style={{ width: `${(count / funnelTotal) * 100}%` }} /></div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div className="grid md:grid-cols-2 gap-6">
         {/* Pending Requests */}
         <div>
@@ -257,15 +211,21 @@ export default function GuideDashboard() {
                       disabled={!!actionLoading[b.id]}
                       className="flex-1 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 text-sm py-2 rounded-xl hover:bg-red-100 transition disabled:opacity-50"
                     >
-                      {actionLoading[b.id] === 'CANCELLED' ? <div className="animate-spin w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full" /> : <XCircle className="w-4 h-4" />}
-                      Decline
+                      <XCircle className="w-4 h-4" />
+                      Reject
                     </button>
                   </div>
                   {rejectingId === b.id && (
-                    <div className="mt-2 flex gap-2">
-                      <input className="input-field text-sm flex-1 py-1.5" placeholder="Reason for rejection..." value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
-                      <button onClick={() => handleReject(b.id)} disabled={!!actionLoading[b.id]} className="px-3 py-1.5 bg-red-600 text-white text-xs rounded-lg font-medium hover:bg-red-700 transition">Send</button>
-                      <button onClick={() => { setRejectingId(null); setRejectReason(''); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs rounded-lg">Cancel</button>
+                    <div className="mt-2 space-y-2">
+                      <input className="input-field text-sm w-full" placeholder="Reason for rejection (required)"
+                        value={rejectReason} onChange={e => setRejectReason(e.target.value)} autoFocus />
+                      <div className="flex gap-2">
+                        <button onClick={() => { setRejectingId(null); setRejectReason(''); }} className="flex-1 btn-secondary text-sm py-1.5">Cancel</button>
+                        <button onClick={() => handleReject(b.id)} disabled={actionLoading[b.id] === 'REJECTING' || !rejectReason.trim()}
+                          className="flex-1 py-1.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition">
+                          {actionLoading[b.id] === 'REJECTING' ? 'Rejecting...' : 'Confirm Reject'}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

@@ -1,7 +1,6 @@
-/** Reel routes: feed, posting, likes, views, and comments. */
 const express = require('express');
 const router = express.Router();
-const { reels, reelComments, notifications } = require('../db');
+const { reels, notifications } = require('../db');
 const { protect } = require('../middleware/error.middleware');
 
 router.get('/', async (req, res) => {
@@ -32,22 +31,6 @@ router.post('/:id/view', async (req, res) => {
     await reels.view(req.params.id);
     res.json({ ok: true });
   } catch (err) { res.json({ ok: false }); }
-});
-
-router.post('/:id/comment', protect, async (req, res) => {
-  try {
-    const { content } = req.body;
-    if (!content?.trim()) return res.status(400).json({ error: 'Comment cannot be empty' });
-    const comment = await reelComments.create({ reelId: req.params.id, userId: req.user.id, content: content.trim() });
-    res.status(201).json({ comment });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.get('/:id/comments', async (req, res) => {
-  try {
-    const comments = await reelComments.findByReel(req.params.id);
-    res.json({ comments });
-  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;

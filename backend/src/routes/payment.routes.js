@@ -1,4 +1,3 @@
-/** Payment routes: hackathon-safe payment intent and status helpers. */
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/error.middleware');

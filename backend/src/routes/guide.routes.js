@@ -1,7 +1,6 @@
-/** Guide routes: discovery, recommendations, profiles, availability, analytics, and hidden gems. */
 const express = require('express');
 const router = express.Router();
-const { guideProfiles, travelerProfiles, reviews, reels, hiddenGems, walletTransactions, USE_PG, query } = require('../db');
+const { guideProfiles, reviews, reels, hiddenGems, walletTransactions, USE_PG, query } = require('../db');
 
 // Fallback city coordinates for major Indian cities
 const CITY_COORDS = {
@@ -21,26 +20,80 @@ function getCityCoords(city) {
 }
 const { protect } = require('../middleware/error.middleware');
 
-function calculateBadges(guide, reviewCount = 0) {
-  const badges = [];
-  if ((guide.avgRating || 0) >= 4.8 && reviewCount >= 10) badges.push({ id: 'top_rated', label: 'Top Rated', color: 'yellow' });
-  if ((guide.totalBookings || 0) >= 50) badges.push({ id: 'veteran', label: 'Veteran Guide', color: 'orange' });
-  if ((guide.totalBookings || 0) >= 5) badges.push({ id: 'rising_star', label: 'Rising Star', color: 'blue' });
-  if (guide.isAvailable) badges.push({ id: 'available_now', label: 'Available Now', color: 'green' });
-  if (guide.isPhotographer) badges.push({ id: 'photographer', label: 'Photographer', color: 'purple' });
-  if (guide.providesCab) badges.push({ id: 'cab', label: 'Cab Service', color: 'teal' });
-  if ((guide.languages || []).length >= 3) badges.push({ id: 'multilingual', label: 'Multilingual', color: 'pink' });
-  return badges;
-}
-
 router.get('/', async (req, res) => {
   try {
+    const { search, lat, lng, radius = 50, minPrice, maxPrice, ...rest } = req.query;
+    // If GPS coords provided and PG mode, use haversine
+    if (lat && lng && USE_PG) {
+      const radiusKm = parseFloat(radius);
+      const rows = await query(`
+        SELECT gp.*, u.full_name, u.avatar_url,
+          (6371 * acos(GREATEST(-1, LEAST(1,
+            cos(radians($1)) * cos(radians(latitude)) *
+            cos(radians(longitude) - radians($2)) +
+            sin(radians($1)) * sin(radians(latitude))
+          )))) AS distance_km
+        FROM guide_profiles gp
+        JOIN users u ON u.id = gp.user_id
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+          AND is_available = true
+          ${minPrice ? 'AND hourly_rate >= $4' : ''}
+          ${maxPrice ? `AND hourly_rate <= $${minPrice ? 5 : 4}` : ''}
+        HAVING (6371 * acos(GREATEST(-1, LEAST(1,
+            cos(radians($1)) * cos(radians(latitude)) *
+            cos(radians(longitude) - radians($2)) +
+            sin(radians($1)) * sin(radians(latitude))
+          )))) < $3
+        ORDER BY distance_km ASC LIMIT 50`,
+        [parseFloat(lat), parseFloat(lng), radiusKm, ...(minPrice ? [parseFloat(minPrice)] : []), ...(maxPrice ? [parseFloat(maxPrice)] : [])]
+      );
+      const guides = rows.map(r => ({
+        id: r.id, userId: r.user_id, bio: r.bio, city: r.city, country: r.country,
+        languages: r.languages || [], expertiseTags: r.expertise_tags || [],
+        isAvailable: r.is_available, hourlyRate: parseFloat(r.hourly_rate) || 0,
+        halfDayRate: parseFloat(r.half_day_rate) || 0, fullDayRate: parseFloat(r.full_day_rate) || 0,
+        avgRating: parseFloat(r.avg_rating) || 0, totalReviews: r.total_reviews || 0,
+        totalBookings: r.total_bookings || 0, isPhotographer: r.is_photographer,
+        latitude: r.latitude, longitude: r.longitude,
+        distanceKm: r.distance_km ? Math.round(r.distance_km * 10) / 10 : null,
+        user: { id: r.user_id, fullName: r.full_name, avatarUrl: r.avatar_url },
+      }));
+      return res.json({ guides, total: guides.length, pagination: { page: 1, limit: 50, total: guides.length, pages: 1 } });
+    }
+    // Fuzzy search in PG mode
+    if (search && USE_PG) {
+      const term = `%${search}%`;
+      const params = [term, ...(minPrice ? [parseFloat(minPrice)] : []), ...(maxPrice ? [parseFloat(maxPrice)] : [])];
+      const rows = await query(`
+        SELECT gp.*, u.full_name, u.avatar_url FROM guide_profiles gp
+        JOIN users u ON u.id = gp.user_id
+        WHERE (gp.city ILIKE $1 OR u.full_name ILIKE $1 OR gp.bio ILIKE $1 OR gp.expertise_tags::text ILIKE $1)
+          ${minPrice ? `AND gp.hourly_rate >= $2` : ''}
+          ${maxPrice ? `AND gp.hourly_rate <= $${minPrice ? 3 : 2}` : ''}
+        ORDER BY gp.avg_rating DESC LIMIT 50`, params);
+      const guides = rows.map(r => ({
+        id: r.id, userId: r.user_id, bio: r.bio, city: r.city,
+        languages: r.languages || [], expertiseTags: r.expertise_tags || [],
+        isAvailable: r.is_available, hourlyRate: parseFloat(r.hourly_rate) || 0,
+        halfDayRate: parseFloat(r.half_day_rate) || 0, fullDayRate: parseFloat(r.full_day_rate) || 0,
+        avgRating: parseFloat(r.avg_rating) || 0, totalReviews: r.total_reviews || 0,
+        totalBookings: r.total_bookings || 0, isPhotographer: r.is_photographer,
+        latitude: r.latitude, longitude: r.longitude,
+        user: { id: r.user_id, fullName: r.full_name, avatarUrl: r.avatar_url },
+      }));
+      return res.json({ guides, total: guides.length, pagination: { page: 1, limit: 50, total: guides.length, pages: 1 } });
+    }
+    // Default: pass through to db helper with price filters added
+    const queryParams = { ...rest };
+    if (search) queryParams.city = search; // fallback for JSON mode
+    if (minPrice) queryParams.minPrice = minPrice;
+    if (maxPrice) queryParams.maxPrice = maxPrice;
     const [guides, total] = await Promise.all([
-      guideProfiles.findMany(req.query),
-      guideProfiles.countMany(req.query),
+      guideProfiles.findMany(queryParams),
+      guideProfiles.countMany(queryParams),
     ]);
     const { page=1, limit=12 } = req.query;
-    res.json({ guides: guides.map(g => ({ ...g, badges: calculateBadges(g, g.totalReviews) })), total, pagination: { page:parseInt(page), limit:parseInt(limit), total, pages:Math.ceil(total/parseInt(limit)) } });
+    res.json({ guides, total, pagination: { page:parseInt(page), limit:parseInt(limit), total, pages:Math.ceil(total/parseInt(limit)) } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -61,26 +114,6 @@ router.get('/dashboard/stats', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.get('/recommend', protect, async (req, res) => {
-  try {
-    const traveler = await travelerProfiles.findByUserId(req.user.id);
-    const allGuides = await guideProfiles.findMany({ limit: 100 });
-    const interests = traveler?.interests || [];
-    const homeCity = traveler?.homeCity || '';
-    const recommendations = allGuides.map(guide => {
-      let score = 0;
-      if (homeCity && guide.city?.toLowerCase() === homeCity.toLowerCase()) score += 30;
-      const overlap = interests.filter(i => (guide.expertiseTags || []).some(e => e.toLowerCase().includes(i.toLowerCase())));
-      score += overlap.length * 20;
-      score += (guide.avgRating || 0) * 10;
-      if (guide.isAvailable) score += 15;
-      score += Math.min(guide.totalReviews || 0, 5) * 3;
-      return { ...guide, badges: calculateBadges(guide, guide.totalReviews), recommendScore: Math.round(score) };
-    }).sort((a, b) => b.recommendScore - a.recommendScore).slice(0, 5);
-    res.json({ recommendations });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 router.get('/:id', async (req, res) => {
   try {
     const guide = await guideProfiles.findById(req.params.id);
@@ -90,7 +123,7 @@ router.get('/:id', async (req, res) => {
       reels.findByUser(guide.userId),
       hiddenGems.findByGuide(guide.id),
     ]);
-    res.json({ guide:{ ...guide, hiddenGems:gems, badges: calculateBadges(guide, guideReviews.length || guide.totalReviews) }, reviews:guideReviews, reels:guideReels });
+    res.json({ guide:{ ...guide, hiddenGems:gems }, reviews:guideReviews, reels:guideReels });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -99,35 +132,34 @@ router.post('/register', protect, async (req, res) => {
     const { bio, city, country, languages, expertiseTags, isPhotographer, hourlyRate, halfDayRate, fullDayRate, photographyRate, placesOneHour, placesHalfDay, placesFullDay, providesCab, cabPricePerKm, cabFullDayPrice, hotelRecommendations, restaurantRecommendations } = req.body;
     if (!bio || !city || !hourlyRate) return res.status(400).json({ error: 'bio, city and hourlyRate are required' });
     const guide = await guideProfiles.create({ userId:req.user.id, bio, city, country:country||'India', languages:languages||[], expertiseTags:expertiseTags||[], isPhotographer:!!isPhotographer, hourlyRate:parseFloat(hourlyRate), halfDayRate:parseFloat(halfDayRate)||parseFloat(hourlyRate)*3, fullDayRate:parseFloat(fullDayRate)||parseFloat(hourlyRate)*6, photographyRate:photographyRate?parseFloat(photographyRate):null, placesOneHour:placesOneHour||'', placesHalfDay:placesHalfDay||'', placesFullDay:placesFullDay||'', providesCab:!!providesCab, cabPricePerKm:parseFloat(cabPricePerKm)||0, cabFullDayPrice:parseFloat(cabFullDayPrice)||0, hotelRecommendations:hotelRecommendations||'', restaurantRecommendations:restaurantRecommendations||'' });
-    // Geocode city — hardcoded lookup first (reliable), then Nominatim as fallback
+
+    // Reliable geocoding: CITY_COORDS first, then Nominatim
     let mapPin = null;
     try {
-      const hardcoded = getCityCoords(city);
-      if (hardcoded) {
-        const lat = hardcoded[0] + (Math.random()-0.5)*0.05;
-        const lng = hardcoded[1] + (Math.random()-0.5)*0.05;
+      const coords = getCityCoords(city);
+      if (coords) {
+        const lat = coords[0] + (Math.random()-0.5)*0.05;
+        const lng = coords[1] + (Math.random()-0.5)*0.05;
         await guideProfiles.update(guide.id, { latitude: lat, longitude: lng });
         guide.latitude = lat; guide.longitude = lng;
         mapPin = { lat, lng, city };
       } else {
-        // Nominatim fallback for unknown cities
-        const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args)).catch(() => null);
-        const geoRes = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city+','+(country||'India'))}&limit=1`,
-          { headers: { 'User-Agent': 'LocalLens/1.0' } }
-        ).catch(() => null);
+        // Try Nominatim
+        const fetchFn = (...a) => import('node-fetch').then(({default:f})=>f(...a)).catch(()=>null);
+        const geoRes = await fetchFn(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city+','+(country||'India'))}&limit=1`, { headers:{'User-Agent':'LocalLens/1.0'} }).catch(()=>null);
         if (geoRes?.ok) {
-          const geoData = await geoRes.json().catch(() => []);
+          const geoData = await geoRes.json().catch(()=>[]);
           if (geoData[0]) {
             const lat = parseFloat(geoData[0].lat) + (Math.random()-0.5)*0.05;
             const lng = parseFloat(geoData[0].lon) + (Math.random()-0.5)*0.05;
-            await guideProfiles.update(guide.id, { latitude: lat, longitude: lng });
+            await guideProfiles.update(guide.id, { latitude: lat, longitude: lng }).catch(()=>{});
             guide.latitude = lat; guide.longitude = lng;
             mapPin = { lat, lng, city };
           }
         }
       }
-    } catch(geoErr) { console.error('Geocode error:', geoErr.message); }
+    } catch(geoErr) { /* geocoding is best-effort */ }
+
     res.status(201).json({ guide, mapPin });
   } catch (err) {
     if (err.message?.includes('already exists')) return res.status(409).json({ error: 'Guide profile already exists' });
@@ -135,7 +167,76 @@ router.post('/register', protect, async (req, res) => {
   }
 });
 
-router.patch('/availability', protect, async (req, res) => {
+router.patch('/cover-image', protect, async (req, res) => {
+  try {
+    const { coverImage } = req.body;
+    if (!coverImage) return res.status(400).json({ error: 'coverImage URL required' });
+    const guide = await guideProfiles.findByUserId(req.user.id);
+    if (!guide) return res.status(404).json({ error: 'Guide profile not found' });
+    const updated = await guideProfiles.update(guide.id, { coverImage });
+    res.json({ guide: updated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /guides/:id/availability
+router.get('/:id/availability', async (req, res) => {
+  try {
+    if (USE_PG) {
+      const rows = await query(`SELECT * FROM guide_availability WHERE guide_id=$1 AND date >= CURRENT_DATE ORDER BY date ASC, start_time ASC`, [req.params.id]).catch(() => []);
+      return res.json({ slots: rows.map(r => ({ id:r.id, guideId:r.guide_id, date:r.date, startTime:r.start_time, endTime:r.end_time, isBooked:r.is_booked, createdAt:r.created_at })) });
+    }
+    const path = require('path'), fs = require('fs');
+    const file = path.join(__dirname, '../../data/guide_availability.json');
+    let store = []; try { store = JSON.parse(fs.readFileSync(file,'utf8')); } catch {}
+    const today = new Date().toISOString().split('T')[0];
+    res.json({ slots: store.filter(s => s.guideId === req.params.id && s.date >= today).sort((a,b) => a.date.localeCompare(b.date)) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /guides/availability
+router.post('/availability', protect, async (req, res) => {
+  try {
+    const guide = await guideProfiles.findByUserId(req.user.id);
+    if (!guide) return res.status(403).json({ error: 'Guide profile required' });
+    const { date, startTime, endTime } = req.body;
+    if (!date || !startTime || !endTime) return res.status(400).json({ error: 'date, startTime and endTime required' });
+    const { v4: uuid } = require('uuid');
+    const id = uuid();
+    if (USE_PG) {
+      await query('INSERT INTO guide_availability(id,guide_id,date,start_time,end_time) VALUES($1,$2,$3,$4,$5)', [id, guide.id, date, startTime, endTime]).catch(async () => {
+        // table might not exist yet — create it
+        await query(`CREATE TABLE IF NOT EXISTS guide_availability(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id) ON DELETE CASCADE,date TEXT NOT NULL,start_time TEXT,end_time TEXT,is_booked BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW())`);
+        await query('INSERT INTO guide_availability(id,guide_id,date,start_time,end_time) VALUES($1,$2,$3,$4,$5)', [id, guide.id, date, startTime, endTime]);
+      });
+      return res.status(201).json({ slot: { id, guideId: guide.id, date, startTime, endTime, isBooked: false } });
+    }
+    const path = require('path'), fs = require('fs');
+    const file = path.join(__dirname, '../../data/guide_availability.json');
+    let store = []; try { store = JSON.parse(fs.readFileSync(file,'utf8')); } catch {}
+    const slot = { id, guideId: guide.id, date, startTime, endTime, isBooked: false, createdAt: new Date().toISOString() };
+    store.push(slot); fs.mkdirSync(path.dirname(file), {recursive:true}); fs.writeFileSync(file, JSON.stringify(store,null,2));
+    res.status(201).json({ slot });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /guides/availability/:slotId
+router.delete('/availability/:slotId', protect, async (req, res) => {
+  try {
+    const guide = await guideProfiles.findByUserId(req.user.id);
+    if (!guide) return res.status(403).json({ error: 'Guide profile required' });
+    if (USE_PG) {
+      await query('DELETE FROM guide_availability WHERE id=$1 AND guide_id=$2', [req.params.slotId, guide.id]).catch(() => {});
+      return res.json({ success: true });
+    }
+    const path = require('path'), fs = require('fs');
+    const file = path.join(__dirname, '../../data/guide_availability.json');
+    let store = []; try { store = JSON.parse(fs.readFileSync(file,'utf8')); } catch {}
+    fs.writeFileSync(file, JSON.stringify(store.filter(s => !(s.id === req.params.slotId && s.guideId === guide.id)), null, 2));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.patch('/availability/:slotId/book', protect, async (req, res) => {
   try {
     const guide = await guideProfiles.updateByUserId(req.user.id, { isAvailable:!!req.body.isAvailable });
     res.json({ guide, message:`You are now ${req.body.isAvailable?'online':'offline'}` });
@@ -156,65 +257,6 @@ router.post('/hidden-gems', protect, async (req, res) => {
     if (!guide) return res.status(403).json({ error: 'Guide profile required' });
     const gem = await hiddenGems.create({ guideId:guide.id, ...req.body });
     res.status(201).json({ gem });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-
-router.patch('/cover-image', protect, async (req, res) => {
-  try {
-    const { coverImage } = req.body;
-    if (!coverImage) return res.status(400).json({ error: 'coverImage URL required' });
-    const guide = await guideProfiles.updateByUserId(req.user.id, { coverImage });
-    res.json({ guide });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-
-// ─── Availability ─────────────────────────────────────────────────────────────
-router.get('/:id/availability', async (req, res) => {
-  try {
-    if (USE_PG) {
-      const rows = await query('SELECT * FROM guide_availability WHERE guide_id=$1 AND date>=CURRENT_DATE ORDER BY date,start_time', [req.params.id]);
-      return res.json({ slots: rows.map(r => ({ id:r.id, guideId:r.guide_id, date:r.date, startTime:r.start_time, endTime:r.end_time, isBooked:r.is_booked })) });
-    }
-    res.json({ slots: [] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.post('/availability', protect, async (req, res) => {
-  try {
-    const guide = await guideProfiles.findByUserId(req.user.id);
-    if (!guide) return res.status(403).json({ error: 'Guide profile required' });
-    const { date, startTime, endTime } = req.body;
-    if (!date || !startTime) return res.status(400).json({ error: 'date and startTime required' });
-    if (USE_PG) {
-      const { v4: uuidv4 } = require('uuid');
-      const id = uuidv4();
-      await query('INSERT INTO guide_availability(id,guide_id,date,start_time,end_time) VALUES($1,$2,$3,$4,$5)', [id, guide.id, date, startTime, endTime||'']);
-      const row = (await query('SELECT * FROM guide_availability WHERE id=$1', [id]))[0];
-      return res.status(201).json({ slot: { id:row.id, guideId:row.guide_id, date:row.date, startTime:row.start_time, endTime:row.end_time, isBooked:row.is_booked } });
-    }
-    res.status(201).json({ slot: { id: Date.now().toString(), guideId: guide.id, date, startTime, endTime: endTime||'', isBooked: false } });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.delete('/availability/:slotId', protect, async (req, res) => {
-  try {
-    const guide = await guideProfiles.findByUserId(req.user.id);
-    if (!guide) return res.status(403).json({ error: 'Guide profile required' });
-    if (USE_PG) {
-      await query('DELETE FROM guide_availability WHERE id=$1 AND guide_id=$2', [req.params.slotId, guide.id]);
-    }
-    res.json({ message: 'Slot deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.patch('/availability/:slotId/block', protect, async (req, res) => {
-  try {
-    if (USE_PG) {
-      await query('UPDATE guide_availability SET is_booked=true WHERE id=$1', [req.params.slotId]);
-    }
-    res.json({ message: 'Slot blocked' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -8,17 +8,23 @@ export default function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
-  const [form, setForm] = useState({ fullName: '', phone: '', email: '', password: '', role: 'TRAVELER' });
+  const [form, setForm] = useState({ fullName: '', email: '', phone: '', password: '', role: 'TRAVELER' });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [phoneError, setPhoneError] = useState('');
+  const [blocked, setBlocked] = useState(false);
 
-  const validatePhone = (val) => /^[6-9]\d{9}$/.test(val);
+  const validatePhone = (val) => {
+    const cleaned = val.replace(/\s/g, '');
+    if (!cleaned) return 'Phone number is required';
+    if (!/^[6-9]\d{9}$/.test(cleaned)) return 'Enter a valid 10-digit mobile number';
+    return '';
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.phone) { setPhoneError('Phone number is required'); return; }
-    if (!validatePhone(form.phone)) { setPhoneError('Enter a valid 10-digit mobile number'); return; }
+    const pErr = validatePhone(form.phone);
+    if (pErr) { setPhoneError(pErr); return; }
     if (form.password.length < 8) { toast.error('Password must be at least 8 characters'); return; }
     setLoading(true);
     try {
@@ -26,7 +32,11 @@ export default function RegisterPage() {
       toast.success('Account created! Welcome to LocalLens 🌍');
       navigate('/dashboard');
     } catch (err) {
-      toast.error(err.message || 'Registration failed');
+      if (err.code === 'REGISTRATION_BLOCKED' || err.message?.includes('permanently suspended')) {
+        setBlocked(true);
+      } else {
+        toast.error(err.message || 'Registration failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -44,6 +54,13 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {blocked && (
+            <div className="bg-red-50 border-2 border-red-400 rounded-xl p-4">
+              <p className="font-bold text-red-700 flex items-center gap-2 mb-1">🚫 Registration Not Allowed</p>
+              <p className="text-red-600 text-sm">An account with this email or phone number has been permanently suspended.</p>
+              <p className="text-red-500 text-xs mt-2">Contact <span className="font-medium">support@locallens.app</span> if you believe this is an error.</p>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
             <input type="text" className="input-field" placeholder="Your full name"
@@ -55,9 +72,9 @@ export default function RegisterPage() {
             <input type="tel" className={`input-field ${phoneError ? 'border-red-400 focus:ring-red-300' : ''}`}
               placeholder="10-digit mobile number"
               value={form.phone}
-              onChange={e => { setForm(f => ({ ...f, phone: e.target.value })); setPhoneError(''); }}
+              onChange={e => { setForm(f => ({ ...f, phone: e.target.value })); setPhoneError(validatePhone(e.target.value)); }}
               required />
-            {phoneError && <p className="mt-1 text-xs text-red-600">{phoneError}</p>}
+            {phoneError && <p className="text-red-500 text-xs mt-1">{phoneError}</p>}
           </div>
 
           <div>

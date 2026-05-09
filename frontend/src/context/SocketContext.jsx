@@ -42,11 +42,6 @@ export function SocketProvider({ children }) {
     socketRef.current.on('connect_error', (err) => {
       console.warn('Socket error:', err.message);
     });
-    socketRef.current.on('notification:new', (notif) => {
-      if (localStorage.getItem('pushEnabled') === 'true' && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification(notif.title || 'LocalLens', { body: notif.body || '', icon: '/favicon.ico' });
-      }
-    });
 
     return () => {
       socketRef.current?.disconnect();

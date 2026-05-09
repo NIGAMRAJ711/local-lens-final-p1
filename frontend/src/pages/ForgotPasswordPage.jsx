@@ -41,7 +41,6 @@ export default function ForgotPasswordPage() {
               <Mail className="w-8 h-8 mx-auto mb-2 text-green-500" />
               <p className="font-medium">{message}</p>
             </div>
-
             <Link to="/login" className="flex items-center justify-center gap-2 text-green-600 hover:underline text-sm">
               <ArrowLeft className="w-4 h-4" /> Back to Login
             </Link>

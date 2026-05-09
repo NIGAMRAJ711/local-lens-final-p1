@@ -5,7 +5,6 @@ import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import { SocketProvider } from './context/SocketContext'
 import { ToastProvider } from './context/ToastContext'
-import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -13,15 +12,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <AuthProvider>
       <ToastProvider>
         <SocketProvider>
-          <ErrorBoundary>
-            <App />
-          </ErrorBoundary>
+          <App />
         </SocketProvider>
       </ToastProvider>
     </AuthProvider>
   </BrowserRouter>
 )
 
+
+// Register service worker for PWA support
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {});

@@ -1,13 +1,13 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
 
 const STYLES = {
-  success: { bg: '#f0fdf4', border: '#22c55e', iconColor: '#16a34a', titleColor: '#14532d', subColor: '#166534' },
-  error:   { bg: '#fef2f2', border: '#ef4444', iconColor: '#dc2626', titleColor: '#7f1d1d', subColor: '#991b1b' },
-  info:    { bg: '#eff6ff', border: '#3b82f6', iconColor: '#2563eb', titleColor: '#1e3a8a', subColor: '#1d4ed8' },
-  warning: { bg: '#fffbeb', border: '#f59e0b', iconColor: '#d97706', titleColor: '#78350f', subColor: '#92400e' },
+  success: { bg: '#f0fdf4', border: '#22c55e', icon: '#16a34a', darkBg: '#14532d' },
+  error:   { bg: '#fef2f2', border: '#ef4444', icon: '#dc2626', darkBg: '#7f1d1d' },
+  warning: { bg: '#fffbeb', border: '#f59e0b', icon: '#d97706', darkBg: '#78350f' },
+  info:    { bg: '#eff6ff', border: '#3b82f6', icon: '#2563eb', darkBg: '#1e3a5f' },
 };
 
 const ICONS = {
@@ -17,66 +17,54 @@ const ICONS = {
   info: Info,
 };
 
-const DURATION = 3500;
-
-function ToastItem({ id, type, title, subtitle, onRemove }) {
+function Toast({ id, title, subtitle, type, onRemove }) {
+  const [progress, setProgress] = useState(100);
   const s = STYLES[type] || STYLES.info;
   const Icon = ICONS[type] || Info;
-  const [progress, setProgress] = useState(100);
-  const [visible, setVisible] = useState(false);
-  const intervalRef = useRef(null);
+  const DURATION = type === 'error' ? 5000 : 3500;
 
-  // Slide in
   useEffect(() => {
-    requestAnimationFrame(() => setVisible(true));
-    const step = 100 / (DURATION / 50);
-    intervalRef.current = setInterval(() => {
-      setProgress(p => {
-        if (p <= 0) { clearInterval(intervalRef.current); return 0; }
-        return p - step;
-      });
-    }, 50);
-    return () => clearInterval(intervalRef.current);
+    const start = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - start;
+      const pct = Math.max(0, 100 - (elapsed / DURATION) * 100);
+      setProgress(pct);
+      if (pct === 0) clearInterval(interval);
+    }, 30);
+    const timer = setTimeout(() => onRemove(id), DURATION);
+    return () => { clearInterval(interval); clearTimeout(timer); };
   }, []);
-
-  const dismiss = () => {
-    setVisible(false);
-    setTimeout(() => onRemove(id), 300);
-  };
 
   return (
     <div
-      onClick={dismiss}
       style={{
         background: s.bg,
         borderLeft: `4px solid ${s.border}`,
         borderRadius: 12,
-        boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
         overflow: 'hidden',
-        cursor: 'pointer',
-        transform: visible ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
-        opacity: visible ? 1 : 0,
-        transition: 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s ease',
+        animation: 'toastSlideIn 0.28s cubic-bezier(0.34,1.56,0.64,1)',
+        pointerEvents: 'auto',
         minWidth: 280,
         maxWidth: 360,
         position: 'relative',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 14px 16px 14px' }}>
-        <Icon style={{ width: 20, height: 20, color: s.iconColor, flexShrink: 0, marginTop: 1 }} />
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 14px 16px 14px' }}>
+        <Icon size={20} color={s.icon} style={{ flexShrink: 0, marginTop: 1 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: s.titleColor, lineHeight: 1.3 }}>{title}</p>
-          {subtitle && <p style={{ margin: '3px 0 0', fontSize: 13, color: s.subColor, lineHeight: 1.4 }}>{subtitle}</p>}
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: '#1a1a1a', lineHeight: 1.3 }}>{title}</p>
+          {subtitle && <p style={{ margin: '3px 0 0', fontSize: 12, color: '#555', lineHeight: 1.4 }}>{subtitle}</p>}
         </div>
-        <button
-          onClick={e => { e.stopPropagation(); dismiss(); }}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9ca3af', flexShrink: 0, marginTop: -1 }}
-        >
-          <X style={{ width: 16, height: 16 }} />
+        <button onClick={() => onRemove(id)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#999', flexShrink: 0, lineHeight: 1 }}>
+          <X size={15} />
         </button>
       </div>
       {/* Shrinking progress bar */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, height: 3, background: s.border, width: `${progress}%`, transition: 'width 50ms linear', opacity: 0.6 }} />
+      <div style={{ height: 3, background: `${s.border}22`, position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+        <div style={{ height: '100%', background: s.border, width: `${progress}%`, transition: 'width 0.03s linear', borderRadius: '0 0 12px 12px' }} />
+      </div>
     </div>
   );
 }
@@ -84,45 +72,48 @@ function ToastItem({ id, type, title, subtitle, onRemove }) {
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
 
-  const addToast = useCallback((type, title, subtitle) => {
-    const id = Date.now() + Math.random();
-    setToasts(prev => [...prev.slice(-4), { id, type, title, subtitle }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, DURATION + 400);
-    return id;
-  }, []);
-
   const removeToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  const addToast = useCallback((title, subtitle, type) => {
+    const id = Date.now() + Math.random();
+    // If subtitle is a number it's being used as old (msg, duration) api — treat as no subtitle
+    const resolvedTitle = typeof title === 'string' ? title : String(title);
+    const resolvedSub = typeof subtitle === 'string' ? subtitle : undefined;
+    setToasts(prev => [...prev.slice(-4), { id, title: resolvedTitle, subtitle: resolvedSub, type }]);
+    return id;
+  }, []);
+
   const toast = {
-    success: (title, subtitle) => addToast('success', title, subtitle),
-    error:   (title, subtitle) => addToast('error', title, subtitle),
-    info:    (title, subtitle) => addToast('info', title, subtitle),
-    warning: (title, subtitle) => addToast('warning', title, subtitle),
+    success: (title, subtitle) => addToast(title, subtitle, 'success'),
+    error:   (title, subtitle) => addToast(title, subtitle, 'error'),
+    warning: (title, subtitle) => addToast(title, subtitle, 'warning'),
+    info:    (title, subtitle) => addToast(title, subtitle, 'info'),
   };
 
   return (
     <ToastContext.Provider value={toast}>
       {children}
       <div style={{
-        position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
-        display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end',
-        pointerEvents: 'none',
+        position: 'fixed', bottom: 20, right: 20,
+        display: 'flex', flexDirection: 'column', gap: 8,
+        zIndex: 9999, pointerEvents: 'none',
+        alignItems: 'flex-end',
       }}
         className="toast-container"
       >
         {toasts.map(t => (
-          <div key={t.id} style={{ pointerEvents: 'auto' }}>
-            <ToastItem {...t} onRemove={removeToast} />
-          </div>
+          <Toast key={t.id} {...t} onRemove={removeToast} />
         ))}
       </div>
       <style>{`
-        @media (max-width: 640px) {
-          .toast-container { right: 12px !important; left: 12px !important; align-items: stretch !important; }
+        @keyframes toastSlideIn {
+          from { opacity: 0; transform: translateX(60px) scale(0.95); }
+          to   { opacity: 1; transform: translateX(0) scale(1); }
+        }
+        @media (max-width: 600px) {
+          .toast-container { right: 0 !important; left: 0 !important; align-items: center !important; bottom: 12px !important; }
         }
       `}</style>
     </ToastContext.Provider>
@@ -135,7 +126,7 @@ export const useToast = () => {
   return ctx;
 };
 
-// Confirm Dialog Component (unchanged)
+// Confirm Dialog (unchanged)
 export function useConfirm() {
   const [dialog, setDialog] = useState(null);
 
@@ -147,7 +138,7 @@ export function useConfirm() {
 
   const ConfirmDialog = dialog ? (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000] p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" style={{ animation: 'toastSlideIn 0.25s ease-out' }}>
         <h3 className="text-lg font-bold text-gray-900 mb-2">{dialog.title}</h3>
         <p className="text-gray-600 text-sm mb-6">{dialog.message}</p>
         <div className="flex gap-3">

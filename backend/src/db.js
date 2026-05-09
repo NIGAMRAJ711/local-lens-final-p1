@@ -15,22 +15,6 @@ if (USE_PG) {
     max: 10, idleTimeoutMillis: 30000,
   });
   console.log('🐘 PostgreSQL mode');
-  let retries = 5;
-  const testConnection = async () => {
-    try {
-      await pgPool.query('SELECT 1');
-      console.log('PostgreSQL connected');
-    } catch (err) {
-      if (retries-- > 0) {
-        console.log(`DB not ready, retrying in 3s... (${retries} left)`);
-        setTimeout(testConnection, 3000);
-      } else {
-        console.error('Could not connect to PostgreSQL after 5 retries');
-        process.exit(1);
-      }
-    }
-  };
-  testConnection();
 } else {
   console.log('📦 JSON file mode (set DATABASE_URL for PostgreSQL)');
 }
@@ -67,26 +51,6 @@ async function initSchema() {
     CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,phone TEXT,password_hash TEXT NOT NULL,full_name TEXT NOT NULL,avatar_url TEXT,role TEXT DEFAULT 'TRAVELER',is_active BOOLEAN DEFAULT true,is_email_verified BOOLEAN DEFAULT false,referral_code TEXT,referred_by TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS guide_profiles(id TEXT PRIMARY KEY,user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,bio TEXT DEFAULT '',city TEXT DEFAULT '',country TEXT DEFAULT 'India',languages TEXT[] DEFAULT '{}',expertise_tags TEXT[] DEFAULT '{}',is_photographer BOOLEAN DEFAULT false,is_available BOOLEAN DEFAULT false,hourly_rate NUMERIC DEFAULT 500,half_day_rate NUMERIC DEFAULT 2000,full_day_rate NUMERIC DEFAULT 3500,photography_rate NUMERIC,total_bookings INT DEFAULT 0,total_earnings NUMERIC DEFAULT 0,avg_rating NUMERIC DEFAULT 0,total_reviews INT DEFAULT 0,latitude NUMERIC,longitude NUMERIC,wallet_balance NUMERIC DEFAULT 0,verification_status TEXT DEFAULT 'UNVERIFIED',cover_image TEXT,is_blacklisted BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS follows(id TEXT PRIMARY KEY,follower_id TEXT REFERENCES users(id) ON DELETE CASCADE,following_id TEXT REFERENCES users(id) ON DELETE CASCADE,status TEXT DEFAULT 'PENDING',created_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(follower_id,following_id));
-    CREATE TABLE IF NOT EXISTS traveler_profiles(id TEXT PRIMARY KEY,user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,interests TEXT[] DEFAULT '{}',home_city TEXT,total_tours_booked INT DEFAULT 0,loyalty_points INT DEFAULT 0,wallet_balance NUMERIC DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES users(id),traveler_id TEXT REFERENCES users(id),booking_type TEXT DEFAULT 'PRIVATE',duration TEXT DEFAULT 'ONE_HOUR',status TEXT DEFAULT 'PENDING',date TEXT,start_time TEXT,meetup_location TEXT DEFAULT '',special_requests TEXT DEFAULT '',base_price NUMERIC DEFAULT 0,platform_fee NUMERIC DEFAULT 0,total_amount NUMERIC DEFAULT 0,payment_status TEXT DEFAULT 'PENDING',escrow_released BOOLEAN DEFAULT false,tour_completed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS group_tours(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id),title TEXT NOT NULL,description TEXT DEFAULT '',city TEXT DEFAULT '',date TEXT,start_time TEXT,duration TEXT DEFAULT '3 hours',max_members INT DEFAULT 6,price_per_person NUMERIC DEFAULT 0,meetup_point TEXT DEFAULT '',meetup_lat NUMERIC,meetup_lng NUMERIC,itinerary JSONB DEFAULT '[]',category TEXT[] DEFAULT '{}',cover_image TEXT,is_active BOOLEAN DEFAULT true,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS group_tour_members(id TEXT PRIMARY KEY,group_tour_id TEXT REFERENCES group_tours(id) ON DELETE CASCADE,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,joined_at TIMESTAMPTZ DEFAULT NOW(),payment_status TEXT DEFAULT 'PENDING',UNIQUE(group_tour_id,user_id));
-    CREATE TABLE IF NOT EXISTS reels(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,video_url TEXT NOT NULL,thumbnail_url TEXT,caption TEXT DEFAULT '',reel_type TEXT DEFAULT 'GENERAL',city TEXT DEFAULT '',location_name TEXT DEFAULT '',latitude NUMERIC,longitude NUMERIC,views INT DEFAULT 0,likes_count INT DEFAULT 0,comments_count INT DEFAULT 0,is_active BOOLEAN DEFAULT true,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS reel_likes(id TEXT PRIMARY KEY,reel_id TEXT REFERENCES reels(id) ON DELETE CASCADE,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,created_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(reel_id,user_id));
-    CREATE TABLE IF NOT EXISTS reel_comments(id TEXT PRIMARY KEY,reel_id TEXT REFERENCES reels(id) ON DELETE CASCADE,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,content TEXT NOT NULL,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,booking_id TEXT REFERENCES bookings(id) ON DELETE CASCADE,sender_id TEXT REFERENCES users(id),receiver_id TEXT REFERENCES users(id),content TEXT NOT NULL,is_read BOOLEAN DEFAULT false,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY,booking_id TEXT UNIQUE REFERENCES bookings(id),reviewer_id TEXT REFERENCES users(id),reviewee_id TEXT REFERENCES users(id),rating NUMERIC NOT NULL,comment TEXT DEFAULT '',photos TEXT[] DEFAULT '{}',guide_response TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS guide_availability(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id) ON DELETE CASCADE,date DATE NOT NULL,start_time TEXT NOT NULL,end_time TEXT DEFAULT '',is_booked BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS bucket_list(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,city TEXT NOT NULL,description TEXT DEFAULT '',is_completed BOOLEAN DEFAULT false,completed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS direct_messages(id TEXT PRIMARY KEY,sender_id TEXT REFERENCES users(id) ON DELETE CASCADE,receiver_id TEXT REFERENCES users(id) ON DELETE CASCADE,content TEXT NOT NULL,is_read BOOLEAN DEFAULT false,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS notifications(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,body TEXT DEFAULT '',type TEXT DEFAULT 'GENERAL',data JSONB DEFAULT '{}',is_read BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS hidden_gems(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id) ON DELETE CASCADE,name TEXT NOT NULL,description TEXT DEFAULT '',category TEXT DEFAULT '',city TEXT DEFAULT '',latitude NUMERIC DEFAULT 0,longitude NUMERIC DEFAULT 0,is_locked BOOLEAN DEFAULT true,photos TEXT[] DEFAULT '{}',created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS wallet_transactions(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,amount NUMERIC NOT NULL,type TEXT DEFAULT 'CREDIT',description TEXT DEFAULT '',booking_id TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS sos_alerts(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),latitude NUMERIC,longitude NUMERIC,booking_id TEXT,message TEXT DEFAULT 'SOS Alert',is_resolved BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE INDEX IF NOT EXISTS idx_dm_sender ON direct_messages(sender_id);
-    CREATE INDEX IF NOT EXISTS idx_dm_receiver ON direct_messages(receiver_id);
-    CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_transactions(user_id);
-    CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id);
     ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS cover_image TEXT;
     ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS is_blacklisted BOOLEAN DEFAULT false;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blacklisted BOOLEAN DEFAULT false;
@@ -98,30 +62,55 @@ async function initSchema() {
     ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS cab_full_day_price NUMERIC DEFAULT 0;
     ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS hotel_recommendations TEXT DEFAULT '';
     ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS restaurant_recommendations TEXT DEFAULT '';
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS number_of_people INT DEFAULT 1;
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hotel_preference TEXT DEFAULT '';
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS restaurant_preference TEXT DEFAULT '';
+    ALTER TABLE follows ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'PENDING';
     ALTER TABLE group_tours ADD COLUMN IF NOT EXISTS whatsapp_link TEXT DEFAULT '';
     ALTER TABLE group_tours ADD COLUMN IF NOT EXISTS photos TEXT[] DEFAULT '{}';
     ALTER TABLE group_tours ADD COLUMN IF NOT EXISTS creator_id TEXT REFERENCES users(id);
     ALTER TABLE group_tours ADD COLUMN IF NOT EXISTS creator_type TEXT DEFAULT 'TRAVELER';
-    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS number_of_people INT DEFAULT 1;
-    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hotel_preference TEXT DEFAULT '';
-    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS restaurant_preference TEXT DEFAULT '';
-    ALTER TABLE reviews ADD COLUMN IF NOT EXISTS responded_at TIMESTAMPTZ;
+    CREATE TABLE IF NOT EXISTS direct_messages (
+      id TEXT PRIMARY KEY,
+      sender_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      receiver_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      is_read BOOLEAN DEFAULT false,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_dm_sender ON direct_messages(sender_id);
+    CREATE INDEX IF NOT EXISTS idx_dm_receiver ON direct_messages(receiver_id);
+    CREATE TABLE IF NOT EXISTS blacklist (
+      id TEXT PRIMARY KEY,
+      user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL,
+      reason_category TEXT NOT NULL,
+      blacklisted_by TEXT REFERENCES users(id),
+      blacklisted_at TIMESTAMPTZ DEFAULT NOW(),
+      email TEXT,
+      phone TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_blacklist_email ON blacklist(email);
+    CREATE INDEX IF NOT EXISTS idx_blacklist_phone ON blacklist(phone);
+    CREATE TABLE IF NOT EXISTS traveler_profiles(id TEXT PRIMARY KEY,user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,interests TEXT[] DEFAULT '{}',home_city TEXT,total_tours_booked INT DEFAULT 0,loyalty_points INT DEFAULT 0,wallet_balance NUMERIC DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES users(id),traveler_id TEXT REFERENCES users(id),booking_type TEXT DEFAULT 'PRIVATE',duration TEXT DEFAULT 'ONE_HOUR',status TEXT DEFAULT 'PENDING',date TEXT,start_time TEXT,meetup_location TEXT DEFAULT '',special_requests TEXT DEFAULT '',base_price NUMERIC DEFAULT 0,platform_fee NUMERIC DEFAULT 0,total_amount NUMERIC DEFAULT 0,payment_status TEXT DEFAULT 'PENDING',escrow_released BOOLEAN DEFAULT false,tour_completed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS group_tours(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id),title TEXT NOT NULL,description TEXT DEFAULT '',city TEXT DEFAULT '',date TEXT,start_time TEXT,duration TEXT DEFAULT '3 hours',max_members INT DEFAULT 6,price_per_person NUMERIC DEFAULT 0,meetup_point TEXT DEFAULT '',meetup_lat NUMERIC,meetup_lng NUMERIC,itinerary JSONB DEFAULT '[]',category TEXT[] DEFAULT '{}',cover_image TEXT,is_active BOOLEAN DEFAULT true,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS group_tour_members(id TEXT PRIMARY KEY,group_tour_id TEXT REFERENCES group_tours(id) ON DELETE CASCADE,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,joined_at TIMESTAMPTZ DEFAULT NOW(),payment_status TEXT DEFAULT 'PENDING',UNIQUE(group_tour_id,user_id));
+    CREATE TABLE IF NOT EXISTS reels(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,video_url TEXT NOT NULL,thumbnail_url TEXT,caption TEXT DEFAULT '',reel_type TEXT DEFAULT 'GENERAL',city TEXT DEFAULT '',location_name TEXT DEFAULT '',latitude NUMERIC,longitude NUMERIC,views INT DEFAULT 0,likes_count INT DEFAULT 0,comments_count INT DEFAULT 0,is_active BOOLEAN DEFAULT true,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS reel_likes(id TEXT PRIMARY KEY,reel_id TEXT REFERENCES reels(id) ON DELETE CASCADE,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,created_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(reel_id,user_id));
+    CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,booking_id TEXT REFERENCES bookings(id) ON DELETE CASCADE,sender_id TEXT REFERENCES users(id),receiver_id TEXT REFERENCES users(id),content TEXT NOT NULL,is_read BOOLEAN DEFAULT false,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY,booking_id TEXT UNIQUE REFERENCES bookings(id),reviewer_id TEXT REFERENCES users(id),reviewee_id TEXT REFERENCES users(id),rating NUMERIC NOT NULL,comment TEXT DEFAULT '',photos TEXT[] DEFAULT '{}',guide_response TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS notifications(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,body TEXT DEFAULT '',type TEXT DEFAULT 'GENERAL',data JSONB,is_read BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS hidden_gems(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id),name TEXT NOT NULL,description TEXT DEFAULT '',category TEXT DEFAULT '',city TEXT DEFAULT '',latitude NUMERIC DEFAULT 0,longitude NUMERIC DEFAULT 0,is_locked BOOLEAN DEFAULT true,photos TEXT[] DEFAULT '{}',created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS wallet_transactions(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),amount NUMERIC NOT NULL,type TEXT DEFAULT 'CREDIT',description TEXT DEFAULT '',booking_id TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS sos_alerts(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),latitude NUMERIC,longitude NUMERIC,booking_id TEXT,message TEXT DEFAULT 'SOS Alert',is_resolved BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW());
   `;
-  const client = await pgPool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(sql);
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-  console.log('PostgreSQL schema ready');
+  await query(sql);
+  console.log('✅ PostgreSQL schema ready');
 }
 
-// USERS
+// ── USERS ──
 const users = {
   async findAll() {
     if (USE_PG) return (await query('SELECT * FROM users')).map(r=>({id:r.id,email:r.email,phone:r.phone,passwordHash:r.password_hash,fullName:r.full_name,avatarUrl:r.avatar_url,role:r.role,isActive:r.is_active,isEmailVerified:r.is_email_verified,referralCode:r.referral_code,createdAt:r.created_at,updatedAt:r.updated_at}));
@@ -158,7 +147,7 @@ const users = {
 };
 
 // ── GUIDE PROFILES ──
-const _gp = (r,u,extra={}) => r?{id:r.id,userId:r.user_id||r.userId,bio:r.bio,city:r.city||r.city,country:r.country,languages:r.languages||[],expertiseTags:r.expertise_tags||r.expertiseTags||[],isPhotographer:r.is_photographer||r.isPhotographer,isAvailable:r.is_available||r.isAvailable,hourlyRate:parseFloat(r.hourly_rate||r.hourlyRate)||0,halfDayRate:parseFloat(r.half_day_rate||r.halfDayRate)||0,fullDayRate:parseFloat(r.full_day_rate||r.fullDayRate)||0,photographyRate:r.photography_rate||r.photographyRate?parseFloat(r.photography_rate||r.photographyRate):null,totalBookings:r.total_bookings||r.totalBookings||0,totalEarnings:parseFloat(r.total_earnings||r.totalEarnings)||0,avgRating:parseFloat(r.avg_rating||r.avgRating)||0,totalReviews:r.total_reviews||r.totalReviews||0,latitude:r.latitude?parseFloat(r.latitude):null,longitude:r.longitude?parseFloat(r.longitude):null,walletBalance:parseFloat(r.wallet_balance||r.walletBalance)||0,verificationStatus:r.verification_status||r.verificationStatus,coverImage:r.cover_image||r.coverImage||null,isBlacklisted:r.is_blacklisted||r.isBlacklisted||false,distance:extra.distance||null,placesOneHour:r.places_one_hour||r.placesOneHour||'',placesHalfDay:r.places_half_day||r.placesHalfDay||'',placesFullDay:r.places_full_day||r.placesFullDay||'',providesCab:!!(r.provides_cab||r.providesCab),cabPricePerKm:parseFloat(r.cab_price_per_km||r.cabPricePerKm)||0,cabFullDayPrice:parseFloat(r.cab_full_day_price||r.cabFullDayPrice)||0,hotelRecommendations:r.hotel_recommendations||r.hotelRecommendations||'',restaurantRecommendations:r.restaurant_recommendations||r.restaurantRecommendations||'',createdAt:r.created_at||r.createdAt,user:u||null}:null;
+const _gp = (r,u) => r?{id:r.id,userId:r.user_id||r.userId,bio:r.bio,city:r.city||r.city,country:r.country,languages:r.languages||[],expertiseTags:r.expertise_tags||r.expertiseTags||[],isPhotographer:r.is_photographer||r.isPhotographer,isAvailable:r.is_available||r.isAvailable,hourlyRate:parseFloat(r.hourly_rate||r.hourlyRate)||0,halfDayRate:parseFloat(r.half_day_rate||r.halfDayRate)||0,fullDayRate:parseFloat(r.full_day_rate||r.fullDayRate)||0,photographyRate:r.photography_rate||r.photographyRate?parseFloat(r.photography_rate||r.photographyRate):null,totalBookings:r.total_bookings||r.totalBookings||0,totalEarnings:parseFloat(r.total_earnings||r.totalEarnings)||0,avgRating:parseFloat(r.avg_rating||r.avgRating)||0,totalReviews:r.total_reviews||r.totalReviews||0,latitude:r.latitude?parseFloat(r.latitude):null,longitude:r.longitude?parseFloat(r.longitude):null,walletBalance:parseFloat(r.wallet_balance||r.walletBalance)||0,verificationStatus:r.verification_status||r.verificationStatus,coverImage:r.cover_image||r.coverImage||null,isBlacklisted:r.is_blacklisted||r.isBlacklisted||false,placesOneHour:r.places_one_hour||r.placesOneHour||'',placesHalfDay:r.places_half_day||r.placesHalfDay||'',placesFullDay:r.places_full_day||r.placesFullDay||'',providesCab:r.provides_cab||r.providesCab||false,cabPricePerKm:parseFloat(r.cab_price_per_km||r.cabPricePerKm)||0,cabFullDayPrice:parseFloat(r.cab_full_day_price||r.cabFullDayPrice)||0,hotelRecommendations:r.hotel_recommendations||r.hotelRecommendations||'',restaurantRecommendations:r.restaurant_recommendations||r.restaurantRecommendations||'',createdAt:r.created_at||r.createdAt,user:u||null}:null;
 const guideProfiles = {
   async _eu(g) {
     if(!g)return null;
@@ -166,31 +155,22 @@ const guideProfiles = {
     return {...g,user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl,email:u.email,createdAt:u.createdAt}:null};
   },
   async findMany(q={}) {
-    const {city,search,minPrice,maxPrice,rating,isAvailable,lat,lng,radius=50,page=1,limit=12}=q;
+    const {city,minPrice,maxPrice,rating,isAvailable,page=1,limit=12}=q;
     if(USE_PG){
-      let sql=`SELECT g.*,u.full_name,u.avatar_url,u.email,u.created_at as uc`;
+      let sql=`SELECT g.*,u.full_name,u.avatar_url,u.email,u.created_at as uc FROM guide_profiles g JOIN users u ON u.id=g.user_id WHERE 1=1`;
       const p=[]; let i=1;
-      if(lat&&lng){
-        sql+=`,ROUND((6371*acos(LEAST(1,cos(radians($${i++}))*cos(radians(g.latitude))*cos(radians(g.longitude)-radians($${i++}))+sin(radians($${i++}))*sin(radians(g.latitude)))))::numeric,1) as distance`;
-        p.push(parseFloat(lat),parseFloat(lng),parseFloat(lat));
-      }
-      sql+=` FROM guide_profiles g JOIN users u ON u.id=g.user_id WHERE 1=1`;
-      if(search){sql+=` AND (LOWER(g.city) LIKE LOWER($${i++}) OR LOWER(u.full_name) LIKE LOWER($${i++}) OR g.expertise_tags::text ILIKE $${i++} OR LOWER(g.bio) LIKE LOWER($${i++}))`;const t=`%${search}%`;p.push(t,t,t,t);}
-      else if(city){sql+=` AND LOWER(g.city) LIKE LOWER($${i++})`;p.push(`%${city}%`);}
+      if(city){sql+=` AND LOWER(g.city) LIKE LOWER($${i++})`;p.push(`%${city}%`);}
       if(minPrice){sql+=` AND g.hourly_rate>=$${i++}`;p.push(parseFloat(minPrice));}
       if(maxPrice){sql+=` AND g.hourly_rate<=$${i++}`;p.push(parseFloat(maxPrice));}
       if(rating){sql+=` AND g.avg_rating>=$${i++}`;p.push(parseFloat(rating));}
       if(isAvailable==='true')sql+=` AND g.is_available=true`;
-      if(lat&&lng){sql+=` AND g.latitude IS NOT NULL AND g.longitude IS NOT NULL AND (6371*acos(LEAST(1,cos(radians($${i++}))*cos(radians(g.latitude))*cos(radians(g.longitude)-radians($${i++}))+sin(radians($${i++}))*sin(radians(g.latitude)))))<$${i++}`;p.push(parseFloat(lat),parseFloat(lng),parseFloat(lat),parseFloat(radius));}
-      sql+= lat&&lng ? ` ORDER BY distance ASC` : ` ORDER BY g.avg_rating DESC,g.total_bookings DESC`;
-      sql+=` LIMIT $${i++} OFFSET $${i++}`;
+      sql+=` ORDER BY g.avg_rating DESC,g.total_bookings DESC LIMIT $${i++} OFFSET $${i++}`;
       p.push(parseInt(limit),(parseInt(page)-1)*parseInt(limit));
       const rows=await query(sql,p);
-      return rows.map(r=>_gp(r,{id:r.user_id,fullName:r.full_name,avatarUrl:r.avatar_url,email:r.email,createdAt:r.uc},{distance:r.distance||null}));
+      return rows.map(r=>_gp(r,{id:r.user_id,fullName:r.full_name,avatarUrl:r.avatar_url,email:r.email,createdAt:r.uc}));
     }
     let s=loadStore('guide_profiles');
-    if(search)s=s.filter(g=>g.city?.toLowerCase().includes(search.toLowerCase())||g.bio?.toLowerCase().includes(search.toLowerCase())||(g.expertiseTags||[]).join(' ').toLowerCase().includes(search.toLowerCase()));
-    else if(city)s=s.filter(g=>g.city?.toLowerCase().includes(city.toLowerCase()));
+    if(city)s=s.filter(g=>g.city?.toLowerCase().includes(city.toLowerCase()));
     if(minPrice)s=s.filter(g=>g.hourlyRate>=parseFloat(minPrice));
     if(maxPrice)s=s.filter(g=>g.hourlyRate<=parseFloat(maxPrice));
     if(rating)s=s.filter(g=>g.avgRating>=parseFloat(rating));
@@ -221,7 +201,7 @@ const guideProfiles = {
     }
     const s=loadStore('guide_profiles');
     if(s.find(g=>g.userId===data.userId))throw new Error('Guide profile already exists');
-    const g={id:uuid(),userId:data.userId,bio:data.bio||'',city:data.city||'',country:data.country||'India',languages:data.languages||[],expertiseTags:data.expertiseTags||[],isPhotographer:!!data.isPhotographer,isAvailable:false,hourlyRate:parseFloat(data.hourlyRate)||500,halfDayRate:parseFloat(data.halfDayRate)||2000,fullDayRate:parseFloat(data.fullDayRate)||3500,photographyRate:data.photographyRate?parseFloat(data.photographyRate):null,totalBookings:0,totalEarnings:0,avgRating:0,totalReviews:0,latitude:null,longitude:null,walletBalance:0,verificationStatus:'UNVERIFIED',placesOneHour:data.placesOneHour||'',placesHalfDay:data.placesHalfDay||'',placesFullDay:data.placesFullDay||'',providesCab:!!data.providesCab,cabPricePerKm:parseFloat(data.cabPricePerKm)||0,cabFullDayPrice:parseFloat(data.cabFullDayPrice)||0,hotelRecommendations:data.hotelRecommendations||'',restaurantRecommendations:data.restaurantRecommendations||'',createdAt:now(),updatedAt:now()};
+    const g={id:uuid(),userId:data.userId,bio:data.bio||'',city:data.city||'',country:data.country||'India',languages:data.languages||[],expertiseTags:data.expertiseTags||[],isPhotographer:!!data.isPhotographer,isAvailable:false,hourlyRate:parseFloat(data.hourlyRate)||500,halfDayRate:parseFloat(data.halfDayRate)||2000,fullDayRate:parseFloat(data.fullDayRate)||3500,photographyRate:data.photographyRate?parseFloat(data.photographyRate):null,placesOneHour:data.placesOneHour||'',placesHalfDay:data.placesHalfDay||'',placesFullDay:data.placesFullDay||'',providesCab:!!data.providesCab,cabPricePerKm:parseFloat(data.cabPricePerKm)||0,cabFullDayPrice:parseFloat(data.cabFullDayPrice)||0,hotelRecommendations:data.hotelRecommendations||'',restaurantRecommendations:data.restaurantRecommendations||'',totalBookings:0,totalEarnings:0,avgRating:0,totalReviews:0,latitude:null,longitude:null,walletBalance:0,verificationStatus:'UNVERIFIED',createdAt:now(),updatedAt:now()};
     s.push(g); saveStore('guide_profiles',s); return this._eu(g);
   },
   async update(id,upd) {
@@ -279,7 +259,7 @@ const travelerProfiles = {
 const _eb = async (b) => {
   if(!b)return null;
   const [g,t]=await Promise.all([users.findById(b.guideId||b.guide_id),users.findById(b.travelerId||b.traveler_id)]);
-  return {...b,guideId:b.guideId||b.guide_id,travelerId:b.travelerId||b.traveler_id,bookingType:b.bookingType||b.booking_type,startTime:b.startTime||b.start_time,meetupLocation:b.meetupLocation||b.meetup_location,specialRequests:b.specialRequests||b.special_requests,basePrice:parseFloat(b.basePrice||b.base_price)||0,platformFee:parseFloat(b.platformFee||b.platform_fee)||0,totalAmount:parseFloat(b.totalAmount||b.total_amount)||0,paymentStatus:b.paymentStatus||b.payment_status,escrowReleased:b.escrowReleased||b.escrow_released,numberOfPeople:parseInt(b.numberOfPeople||b.number_of_people)||1,hotelPreference:b.hotelPreference||b.hotel_preference||'',restaurantPreference:b.restaurantPreference||b.restaurant_preference||'',createdAt:b.createdAt||b.created_at,updatedAt:b.updatedAt||b.updated_at,guide:g?{id:g.id,fullName:g.fullName,avatarUrl:g.avatarUrl}:null,traveler:t?{id:t.id,fullName:t.fullName,avatarUrl:t.avatarUrl}:null};
+  return {...b,guideId:b.guideId||b.guide_id,travelerId:b.travelerId||b.traveler_id,bookingType:b.bookingType||b.booking_type,startTime:b.startTime||b.start_time,meetupLocation:b.meetupLocation||b.meetup_location,specialRequests:b.specialRequests||b.special_requests,numberOfPeople:b.numberOfPeople||b.number_of_people||1,hotelPreference:b.hotelPreference||b.hotel_preference||'',restaurantPreference:b.restaurantPreference||b.restaurant_preference||'',basePrice:parseFloat(b.basePrice||b.base_price)||0,platformFee:parseFloat(b.platformFee||b.platform_fee)||0,totalAmount:parseFloat(b.totalAmount||b.total_amount)||0,paymentStatus:b.paymentStatus||b.payment_status,escrowReleased:b.escrowReleased||b.escrow_released,createdAt:b.createdAt||b.created_at,updatedAt:b.updatedAt||b.updated_at,guide:g?{id:g.id,fullName:g.fullName,avatarUrl:g.avatarUrl}:null,traveler:t?{id:t.id,fullName:t.fullName,avatarUrl:t.avatarUrl}:null};
 };
 const bookings = {
   async findById(id) {
@@ -304,7 +284,7 @@ const bookings = {
   },
   async create(data) {
     const id=uuid();
-    if(USE_PG){await query('INSERT INTO bookings(id,guide_id,traveler_id,booking_type,duration,date,start_time,meetup_location,special_requests,base_price,platform_fee,total_amount,number_of_people,hotel_preference,restaurant_preference) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',[id,data.guideId,data.travelerId,data.bookingType||'PRIVATE',data.duration||'ONE_HOUR',data.date,data.startTime,data.meetupLocation||'',data.specialRequests||'',data.basePrice||0,data.platformFee||0,data.totalAmount||0,data.numberOfPeople||1,data.hotelPreference||'',data.restaurantPreference||'']);return this.findById(id);}
+    if(USE_PG){await query('INSERT INTO bookings(id,guide_id,traveler_id,booking_type,duration,date,start_time,meetup_location,special_requests,number_of_people,hotel_preference,restaurant_preference,base_price,platform_fee,total_amount) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',[id,data.guideId,data.travelerId,data.bookingType||'PRIVATE',data.duration||'ONE_HOUR',data.date,data.startTime,data.meetupLocation||'',data.specialRequests||'',data.numberOfPeople||1,data.hotelPreference||'',data.restaurantPreference||'',data.basePrice||0,data.platformFee||0,data.totalAmount||0]);return this.findById(id);}
     const s=loadStore('bookings'); const b={id,...data,status:'PENDING',paymentStatus:'PENDING',escrowReleased:false,createdAt:now(),updatedAt:now()}; s.push(b); saveStore('bookings',s); return _eb(b);
   },
   async updateStatus(id,status) {
@@ -330,7 +310,7 @@ const _enrichTour = async(t) => {
   const guide=await guideProfiles.findById(t.guideId||t.guide_id);
   const mems=USE_PG?await query(`SELECT gtm.*,u.full_name,u.avatar_url FROM group_tour_members gtm JOIN users u ON u.id=gtm.user_id WHERE gtm.group_tour_id=$1`,[t.id]):loadStore('group_tour_members').filter(m=>m.groupTourId===t.id);
   const members=USE_PG?mems.map(m=>({id:m.id,userId:m.user_id,user:{id:m.user_id,fullName:m.full_name,avatarUrl:m.avatar_url}})):await Promise.all(mems.map(async m=>{const u=await users.findById(m.userId);return{...m,user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
-  const base={...t,guideId:t.guideId||t.guide_id,startTime:t.startTime||t.start_time,maxMembers:t.maxMembers||t.max_members,pricePerPerson:parseFloat(t.pricePerPerson||t.price_per_person)||0,meetupPoint:t.meetupPoint||t.meetup_point,meetupLat:t.meetupLat||t.meetup_lat,meetupLng:t.meetupLng||t.meetup_lng,coverImage:t.coverImage||t.cover_image,isActive:t.isActive!==undefined?t.isActive:t.is_active,createdAt:t.createdAt||t.created_at,whatsappLink:t.whatsapp_link||t.whatsappLink||'',photos:t.photos||[],creatorId:t.creator_id||t.creatorId||null,creatorType:t.creator_type||t.creatorType||'TRAVELER'};
+  const base={...t,guideId:t.guideId||t.guide_id,creatorId:t.creatorId||t.creator_id,creatorType:t.creatorType||t.creator_type||'TRAVELER',startTime:t.startTime||t.start_time,maxMembers:t.maxMembers||t.max_members,pricePerPerson:parseFloat(t.pricePerPerson||t.price_per_person)||0,meetupPoint:t.meetupPoint||t.meetup_point,meetupLat:t.meetupLat||t.meetup_lat,meetupLng:t.meetupLng||t.meetup_lng,coverImage:t.coverImage||t.cover_image,whatsappLink:t.whatsappLink||t.whatsapp_link||'',photos:t.photos||[],isActive:t.isActive!==undefined?t.isActive:t.is_active,createdAt:t.createdAt||t.created_at};
   return{...base,guide,members,_count:{members:members.length}};
 };
 const groupTours = {
@@ -356,7 +336,7 @@ const groupTours = {
   },
   async create(data) {
     const id=uuid();
-    if(USE_PG){await query(`INSERT INTO group_tours(id,guide_id,title,description,city,date,start_time,duration,max_members,price_per_person,meetup_point,meetup_lat,meetup_lng,itinerary,category,cover_image,whatsapp_link,photos,creator_id,creator_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,[id,data.guideId||null,data.title,data.description||'',data.city||'',data.date,data.startTime,data.duration||'3 hours',parseInt(data.maxMembers)||6,parseFloat(data.pricePerPerson)||0,data.meetupPoint||'',data.meetupLat||null,data.meetupLng||null,JSON.stringify(data.itinerary||[]),data.category||[],data.coverImage||null,data.whatsappLink||'',data.photos||[],data.creatorId||null,data.creatorType||'TRAVELER']);return this.findById(id);}
+    if(USE_PG){await query(`INSERT INTO group_tours(id,guide_id,creator_id,creator_type,title,description,city,date,start_time,duration,max_members,price_per_person,meetup_point,meetup_lat,meetup_lng,itinerary,category,cover_image,whatsapp_link,photos) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,[id,data.guideId||null,data.creatorId||null,data.creatorType||'TRAVELER',data.title,data.description||'',data.city||'',data.date,data.startTime,data.duration||'3 hours',parseInt(data.maxMembers)||6,parseFloat(data.pricePerPerson)||0,data.meetupPoint||'',data.meetupLat||null,data.meetupLng||null,JSON.stringify(data.itinerary||[]),data.category||[],data.coverImage||null,data.whatsappLink||'',data.photos||[]]);return this.findById(id);}
     const s=loadStore('group_tours'); const t={id,...data,isActive:true,createdAt:now(),updatedAt:now()}; s.push(t); saveStore('group_tours',s); return _enrichTour(t);
   },
 };
@@ -411,35 +391,6 @@ const reels = {
 };
 
 // ── MESSAGES ──
-const reelComments = {
-  async create(data) {
-    const id = uuid();
-    if (USE_PG) {
-      await query('INSERT INTO reel_comments(id,reel_id,user_id,content) VALUES($1,$2,$3,$4)', [id, data.reelId, data.userId, data.content]);
-      await query('UPDATE reels SET comments_count=comments_count+1 WHERE id=$1', [data.reelId]);
-      const row = (await query('SELECT rc.*,u.full_name,u.avatar_url FROM reel_comments rc JOIN users u ON u.id=rc.user_id WHERE rc.id=$1', [id]))[0];
-      return { id: row.id, reelId: row.reel_id, userId: row.user_id, content: row.content, createdAt: row.created_at, user: { id: row.user_id, fullName: row.full_name, avatarUrl: row.avatar_url } };
-    }
-    const s = loadStore('reel_comments');
-    const comment = { id, reelId: data.reelId, userId: data.userId, content: data.content, createdAt: now() };
-    s.push(comment); saveStore('reel_comments', s);
-    const rs = loadStore('reels'); const rIdx = rs.findIndex(r => r.id === data.reelId);
-    if (rIdx !== -1) { rs[rIdx].commentsCount = (rs[rIdx].commentsCount || 0) + 1; saveStore('reels', rs); }
-    const u = await users.findById(data.userId);
-    return { ...comment, user: u ? { id: u.id, fullName: u.fullName, avatarUrl: u.avatarUrl } : null };
-  },
-  async findByReel(reelId) {
-    if (USE_PG) {
-      const rows = await query('SELECT rc.*,u.full_name,u.avatar_url FROM reel_comments rc JOIN users u ON u.id=rc.user_id WHERE rc.reel_id=$1 ORDER BY rc.created_at ASC', [reelId]);
-      return rows.map(row => ({ id: row.id, reelId: row.reel_id, userId: row.user_id, content: row.content, createdAt: row.created_at, user: { id: row.user_id, fullName: row.full_name, avatarUrl: row.avatar_url } }));
-    }
-    const rows = loadStore('reel_comments').filter(c => c.reelId === reelId).sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
-    return Promise.all(rows.map(async c => {
-      const u = await users.findById(c.userId);
-      return { ...c, user: u ? { id: u.id, fullName: u.fullName, avatarUrl: u.avatarUrl } : null };
-    }));
-  },
-};
 const messages = {
   async findByBooking(bid) {
     if(USE_PG){const rows=await query(`SELECT m.*,u.full_name as sn,u.avatar_url as sa FROM messages m JOIN users u ON u.id=m.sender_id WHERE m.booking_id=$1 ORDER BY m.created_at ASC`,[bid]);return rows.map(r=>({id:r.id,bookingId:r.booking_id,senderId:r.sender_id,receiverId:r.receiver_id,content:r.content,isRead:r.is_read,createdAt:r.created_at,sender:{id:r.sender_id,fullName:r.sn,avatarUrl:r.sa}}));}
@@ -460,13 +411,6 @@ const messages = {
 
 // ── REVIEWS ──
 const reviews = {
-  async findById(id) {
-    if (USE_PG) {
-      const r = (await query('SELECT * FROM reviews WHERE id=$1', [id]))[0];
-      return r ? { id: r.id, bookingId: r.booking_id, reviewerId: r.reviewer_id, revieweeId: r.reviewee_id, rating: parseFloat(r.rating), comment: r.comment, guideResponse: r.guide_response, createdAt: r.created_at } : null;
-    }
-    return loadStore('reviews').find(r => r.id === id) || null;
-  },
   async findByReviewee(uid) {
     if(USE_PG){const rows=await query(`SELECT r.*,u.full_name as rn,u.avatar_url as ra FROM reviews r JOIN users u ON u.id=r.reviewer_id WHERE r.reviewee_id=$1 ORDER BY r.created_at DESC`,[uid]);return rows.map(r=>({id:r.id,bookingId:r.booking_id,reviewerId:r.reviewer_id,revieweeId:r.reviewee_id,rating:parseFloat(r.rating),comment:r.comment,guideResponse:r.guide_response,createdAt:r.created_at,reviewer:{id:r.reviewer_id,fullName:r.rn,avatarUrl:r.ra}}));}
     const s=loadStore('reviews').filter(r=>r.revieweeId===uid);
@@ -476,14 +420,6 @@ const reviews = {
     if(USE_PG){const ex=await query('SELECT id FROM reviews WHERE booking_id=$1',[data.bookingId]);if(ex.length)throw new Error('Review already submitted');const id=uuid();await query('INSERT INTO reviews(id,booking_id,reviewer_id,reviewee_id,rating,comment) VALUES($1,$2,$3,$4,$5,$6)',[id,data.bookingId,data.reviewerId,data.revieweeId,parseFloat(data.rating),data.comment||'']);await guideProfiles.recalcRating(data.revieweeId);const rows=await query('SELECT r.*,u.full_name as rn,u.avatar_url as ra FROM reviews r JOIN users u ON u.id=r.reviewer_id WHERE r.id=$1',[id]);const r=rows[0];return{id:r.id,bookingId:r.booking_id,reviewerId:r.reviewer_id,revieweeId:r.reviewee_id,rating:parseFloat(r.rating),comment:r.comment,createdAt:r.created_at,reviewer:{id:r.reviewer_id,fullName:r.rn,avatarUrl:r.ra}};}
     const s=loadStore('reviews'); if(s.find(r=>r.bookingId===data.bookingId))throw new Error('Review already submitted');
     const rev={id:uuid(),...data,rating:parseFloat(data.rating),photos:[],guideResponse:null,createdAt:now()}; s.push(rev); saveStore('reviews',s); await guideProfiles.recalcRating(data.revieweeId); return rev;
-  },
-  async update(id, upd) {
-    if (USE_PG) {
-      if (upd.guideResponse !== undefined) await query('UPDATE reviews SET guide_response=$1 WHERE id=$2', [upd.guideResponse, id]);
-      return this.findById(id);
-    }
-    const s = loadStore('reviews'); const idx = s.findIndex(r => r.id === id); if (idx === -1) return null;
-    s[idx] = { ...s[idx], ...upd }; saveStore('reviews', s); return s[idx];
   },
   _store(){return loadStore('reviews');}, _save(d){saveStore('reviews',d);},
 };
@@ -517,8 +453,8 @@ const hiddenGems = {
   },
   async create(data) {
     const id=uuid();
-    if(USE_PG){await query('INSERT INTO hidden_gems(id,guide_id,name,description,category,city,latitude,longitude,is_locked,photos) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,data.guideId,data.name,data.description||'',data.category||'',data.city||'',parseFloat(data.latitude)||0,parseFloat(data.longitude)||0,data.isLocked!==false,data.photos||[]]);return(await query('SELECT * FROM hidden_gems WHERE id=$1',[id]))[0];}
-    const s=loadStore('hidden_gems'); const g={id,guideId:data.guideId,name:data.name,description:data.description||'',category:data.category||'',city:data.city||'',latitude:parseFloat(data.latitude)||0,longitude:parseFloat(data.longitude)||0,isLocked:data.isLocked!==false,photos:data.photos||[],createdAt:now()}; s.push(g); saveStore('hidden_gems',s); return g;
+    if(USE_PG){await query('INSERT INTO hidden_gems(id,guide_id,name,description,category,city,latitude,longitude) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,data.guideId,data.name,data.description||'',data.category||'',data.city||'',parseFloat(data.latitude)||0,parseFloat(data.longitude)||0]);return(await query('SELECT * FROM hidden_gems WHERE id=$1',[id]))[0];}
+    const s=loadStore('hidden_gems'); const g={id,guideId:data.guideId,name:data.name,description:data.description||'',category:data.category||'',city:data.city||'',latitude:parseFloat(data.latitude)||0,longitude:parseFloat(data.longitude)||0,isLocked:true,photos:[],createdAt:now()}; s.push(g); saveStore('hidden_gems',s); return g;
   },
 };
 
@@ -544,7 +480,7 @@ const sosAlerts = {
   },
 };
 
-module.exports = { users, guideProfiles, travelerProfiles, bookings, groupTours, groupTourMembers, reels, reelComments, messages, reviews, notifications, hiddenGems, walletTransactions, sosAlerts, initSchema, USE_PG, query, follows: null }; // follows added below
+module.exports = { users, guideProfiles, travelerProfiles, bookings, groupTours, groupTourMembers, reels, messages, reviews, notifications, hiddenGems, walletTransactions, sosAlerts, initSchema, USE_PG, follows: null, directMessages: null }; // follows + directMessages added below
 
 
 // ── FOLLOWS (Friend Requests) ──
@@ -618,63 +554,95 @@ const follows = {
     }
     return loadStore('follows').find(f=>f.followerId===followerId&&f.followingId===followingId)?.status || null;
   },
+  async getRow(followerId, followingId) {
+    if (USE_PG) {
+      try {
+        const rows = await query('SELECT id,status FROM follows WHERE follower_id=$1 AND following_id=$2',[followerId,followingId]);
+        return rows[0] || null;
+      } catch { return null; }
+    }
+    return loadStore('follows').find(f=>f.followerId===followerId&&f.followingId===followingId) || null;
+  },
+  async getSent(userId) {
+    if (USE_PG) {
+      try {
+        const rows = await query('SELECT f.*,u.full_name,u.avatar_url FROM follows f JOIN users u ON u.id=f.following_id WHERE f.follower_id=$1 AND f.status=$2',[userId,'PENDING']);
+        return rows.map(r=>({id:r.id,followerId:r.follower_id,followingId:r.following_id,status:r.status,user:{id:r.following_id,fullName:r.full_name,avatarUrl:r.avatar_url}}));
+      } catch { return []; }
+    }
+    const s=loadStore('follows').filter(f=>f.followerId===userId&&f.status==='PENDING');
+    return Promise.all(s.map(async f=>{const u=await users.findById(f.followingId);return{...f,user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
+  },
+  async decline(id, userId) {
+    if (USE_PG) {
+      await query('UPDATE follows SET status=$1 WHERE id=$2 AND following_id=$3',['REJECTED',id,userId]);
+      return true;
+    }
+    const s=loadStore('follows'); const idx=s.findIndex(f=>f.id===id&&f.followingId===userId);
+    if(idx!==-1){s[idx].status='REJECTED';saveStore('follows',s);} return true;
+  },
 };
 
-module.exports.follows = follows;
-
 const directMessages = {
-  async getConversation(userA, userB) {
-    if(USE_PG){
-      return query(`SELECT dm.*,u.full_name as sender_name,u.avatar_url as sender_avatar FROM direct_messages dm JOIN users u ON u.id=dm.sender_id WHERE (dm.sender_id=$1 AND dm.receiver_id=$2) OR (dm.sender_id=$2 AND dm.receiver_id=$1) ORDER BY dm.created_at ASC`,[userA,userB]);
+  async send(senderId, receiverId, content) {
+    const id = uuid();
+    if (USE_PG) {
+      await query('INSERT INTO direct_messages(id,sender_id,receiver_id,content) VALUES($1,$2,$3,$4)', [id, senderId, receiverId, content]);
+      const rows = await query('SELECT dm.*,u.full_name,u.avatar_url FROM direct_messages dm JOIN users u ON u.id=dm.sender_id WHERE dm.id=$1', [id]);
+      const r = rows[0];
+      return { id:r.id, senderId:r.sender_id, receiverId:r.receiver_id, content:r.content, isRead:r.is_read, createdAt:r.created_at, sender:{id:r.sender_id,fullName:r.full_name,avatarUrl:r.avatar_url} };
     }
-    const store=loadStore('direct_messages');
-    return store.filter(m=>(m.senderId===userA&&m.receiverId===userB)||(m.senderId===userB&&m.receiverId===userA)).sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+    const msg = { id, senderId, receiverId, content, isRead:false, createdAt:now() };
+    const s = loadStore('direct_messages'); s.push(msg); saveStore('direct_messages', s);
+    const sender = await users.findById(senderId);
+    return { ...msg, sender: sender ? {id:sender.id,fullName:sender.fullName,avatarUrl:sender.avatarUrl} : null };
+  },
+  async getConversation(userA, userB) {
+    if (USE_PG) {
+      const rows = await query(`SELECT dm.*,u.full_name,u.avatar_url FROM direct_messages dm JOIN users u ON u.id=dm.sender_id WHERE (dm.sender_id=$1 AND dm.receiver_id=$2) OR (dm.sender_id=$2 AND dm.receiver_id=$1) ORDER BY dm.created_at ASC`, [userA, userB]);
+      return rows.map(r => ({ id:r.id, senderId:r.sender_id, receiverId:r.receiver_id, content:r.content, isRead:r.is_read, readAt:r.read_at, createdAt:r.created_at, sender:{id:r.sender_id,fullName:r.full_name,avatarUrl:r.avatar_url} }));
+    }
+    const s = loadStore('direct_messages').filter(m => (m.senderId===userA&&m.receiverId===userB)||(m.senderId===userB&&m.receiverId===userA));
+    return Promise.all(s.sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt)).map(async m => { const sender = await users.findById(m.senderId); return {...m, sender:sender?{id:sender.id,fullName:sender.fullName,avatarUrl:sender.avatarUrl}:null}; }));
   },
   async getInbox(userId) {
-    if(USE_PG){
+    if (USE_PG) {
       const rows = await query(`
-        SELECT DISTINCT ON (contact_id)
-          contact_id,
-          u.full_name as contact_name,
-          u.avatar_url as contact_avatar,
-          u.role as contact_role,
-          dm.content as last_message,
-          dm.created_at as last_message_time,
-          dm.sender_id,
-          (SELECT COUNT(*) FROM direct_messages WHERE sender_id=contact_id AND receiver_id=$1 AND is_read=false) as unread_count
+        SELECT DISTINCT ON (contact_id) contact_id, content, created_at, sender_id, is_read,
+          (SELECT COUNT(*) FROM direct_messages WHERE receiver_id=$1 AND sender_id=contact_id AND is_read=false) as unread_count
         FROM (
-          SELECT CASE WHEN sender_id=$1 THEN receiver_id ELSE sender_id END as contact_id, id, content, created_at, sender_id
+          SELECT CASE WHEN sender_id=$1 THEN receiver_id ELSE sender_id END as contact_id,
+                 content, created_at, sender_id, is_read
           FROM direct_messages WHERE sender_id=$1 OR receiver_id=$1
-        ) dm
-        JOIN users u ON u.id=dm.contact_id
-        ORDER BY contact_id, dm.created_at DESC
-      `,[userId]);
-      return rows.map(r=>({contactId:r.contact_id,contactName:r.contact_name,contactAvatar:r.contact_avatar,contactRole:r.contact_role,lastMessage:r.last_message,lastMessageTime:r.last_message_time,unreadCount:parseInt(r.unread_count)||0}));
+        ) sub ORDER BY contact_id, created_at DESC`, [userId]);
+      return Promise.all(rows.map(async r => {
+        const contact = await users.findById(r.contact_id);
+        return { contactId:r.contact_id, lastMessage:r.content, lastMessageTime:r.created_at, lastSenderId:r.sender_id, unreadCount:parseInt(r.unread_count)||0, user:contact?{id:contact.id,fullName:contact.fullName,avatarUrl:contact.avatarUrl,role:contact.role}:null };
+      }));
     }
-    const store=loadStore('direct_messages');
-    const contacts=new Map();
-    store.filter(m=>m.senderId===userId||m.receiverId===userId).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).forEach(m=>{
-      const contactId=m.senderId===userId?m.receiverId:m.senderId;
-      if(!contacts.has(contactId))contacts.set(contactId,{contactId,lastMessage:m.content,lastMessageTime:m.createdAt,unreadCount:0});
+    const s = loadStore('direct_messages').filter(m => m.senderId===userId||m.receiverId===userId);
+    const contactMap = new Map();
+    s.sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt)).forEach(m => {
+      const contactId = m.senderId===userId ? m.receiverId : m.senderId;
+      contactMap.set(contactId, m);
     });
-    return Promise.all([...contacts.values()].map(async c=>{const u=await users.findById(c.contactId);return{...c,contactName:u?.fullName||'',contactAvatar:u?.avatarUrl||'',contactRole:u?.role||'TRAVELER'};}));
-  },
-  async send(senderId, receiverId, content) {
-    const id=uuid();
-    if(USE_PG){await query('INSERT INTO direct_messages(id,sender_id,receiver_id,content) VALUES($1,$2,$3,$4)',[id,senderId,receiverId,content]);return(await query('SELECT * FROM direct_messages WHERE id=$1',[id]))[0];}
-    const msg={id,senderId,receiverId,content,isRead:false,readAt:null,createdAt:now()};
-    const s=loadStore('direct_messages');s.push(msg);saveStore('direct_messages',s);return msg;
+    return Promise.all([...contactMap.entries()].map(async ([contactId, m]) => {
+      const unread = s.filter(x => x.senderId===contactId && x.receiverId===userId && !x.isRead).length;
+      const contact = await users.findById(contactId);
+      return { contactId, lastMessage:m.content, lastMessageTime:m.createdAt, lastSenderId:m.senderId, unreadCount:unread, user:contact?{id:contact.id,fullName:contact.fullName,avatarUrl:contact.avatarUrl,role:contact.role}:null };
+    }));
   },
   async markRead(senderId, receiverId) {
-    if(USE_PG){await query('UPDATE direct_messages SET is_read=true,read_at=NOW() WHERE sender_id=$1 AND receiver_id=$2 AND is_read=false',[senderId,receiverId]);return;}
-    const s=loadStore('direct_messages');
-    s.forEach(m=>{if(m.senderId===senderId&&m.receiverId===receiverId&&!m.isRead){m.isRead=true;m.readAt=now();}});
-    saveStore('direct_messages',s);
+    if (USE_PG) { await query('UPDATE direct_messages SET is_read=true,read_at=NOW() WHERE sender_id=$1 AND receiver_id=$2 AND is_read=false', [senderId, receiverId]); return; }
+    const s = loadStore('direct_messages');
+    s.forEach(m => { if(m.senderId===senderId&&m.receiverId===receiverId&&!m.isRead){m.isRead=true;m.readAt=now();} });
+    saveStore('direct_messages', s);
   },
   async getUnreadCount(userId) {
-    if(USE_PG){const r=await query('SELECT COUNT(*) as cnt FROM direct_messages WHERE receiver_id=$1 AND is_read=false',[userId]);return parseInt(r[0]?.cnt)||0;}
+    if (USE_PG) { const rows = await query('SELECT COUNT(*) as c FROM direct_messages WHERE receiver_id=$1 AND is_read=false', [userId]); return parseInt(rows[0]?.c)||0; }
     return loadStore('direct_messages').filter(m=>m.receiverId===userId&&!m.isRead).length;
   },
 };
 
+module.exports.follows = follows;
 module.exports.directMessages = directMessages;

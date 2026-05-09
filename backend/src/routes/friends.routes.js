@@ -1,4 +1,3 @@
-/** Friend routes: follow requests, accept/decline flows, friendship status, and profiles. */
 const express = require('express');
 const router = express.Router();
 const { users, bookings, guideProfiles, reels, notifications } = require('../db');
@@ -47,7 +46,66 @@ router.delete('/unfollow/:userId', protect, async (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-// status route moved to new endpoints below
+router.get('/status/:userId', protect, async (req, res) => {
+  try {
+    const db = getDb();
+    const sentStatus = await db.follows.getStatus(req.user.id, req.params.userId);
+    const receivedStatus = await db.follows.getStatus(req.params.userId, req.user.id);
+    // Get the follow record ID for action
+    const sentRow = await db.follows.getRow(req.user.id, req.params.userId);
+    const receivedRow = await db.follows.getRow(req.params.userId, req.user.id);
+    let status = 'NONE', requestId = null;
+    if (sentStatus === 'ACCEPTED' || receivedStatus === 'ACCEPTED') { status = 'FRIENDS'; requestId = sentRow?.id || receivedRow?.id; }
+    else if (sentStatus === 'PENDING') { status = 'PENDING_SENT'; requestId = sentRow?.id; }
+    else if (receivedStatus === 'PENDING') { status = 'PENDING_RECEIVED'; requestId = receivedRow?.id; }
+    res.json({ status, requestId });
+  } catch (err) { res.json({ status: 'NONE', requestId: null }); }
+});
+
+router.post('/request/:userId', protect, async (req, res) => {
+  try {
+    const result = await getDb().follows.follow(req.user.id, req.params.userId);
+    await notifications.create({ userId: req.params.userId, title: '👋 Friend Request', body: `${req.user.fullName} sent you a friend request`, type: 'FRIEND_REQUEST', data: { fromUserId: req.user.id, fromName: req.user.fullName, requestId: result.id } });
+    res.json({ result, message: 'Friend request sent' });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.patch('/request/:requestId/accept', protect, async (req, res) => {
+  try {
+    const result = await getDb().follows.accept(req.params.requestId, req.user.id);
+    res.json({ result, message: 'Friend request accepted' });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.patch('/request/:requestId/decline', protect, async (req, res) => {
+  try {
+    await getDb().follows.decline(req.params.requestId, req.user.id);
+    res.json({ message: 'Request declined' });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.get('/requests/incoming', protect, async (req, res) => {
+  try {
+    const pending = await getDb().follows.getPending(req.user.id);
+    res.json({ requests: pending });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/requests/sent', protect, async (req, res) => {
+  try {
+    const sent = await getDb().follows.getSent(req.user.id);
+    res.json({ requests: sent });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/count/:userId', protect, async (req, res) => {
+  try {
+    const db = getDb();
+    const [followers, following] = await Promise.all([db.follows.getFollowers(req.params.userId), db.follows.getFollowing(req.params.userId)]);
+    const ids = new Set([...followers.map(f => f.followerId), ...following.map(f => f.followingId)]);
+    res.json({ count: ids.size });
+  } catch (err) { res.json({ count: 0 }); }
+});
 
 router.get('/search', protect, async (req, res) => {
   try {
@@ -72,120 +130,3 @@ router.get('/profile/:userId', protect, async (req, res) => {
 });
 
 module.exports = router;
-
-// ─── New friend request endpoints ───────────────────────────────────────────
-
-router.post('/request/:userId', protect, async (req, res) => {
-  try {
-    const db = getDb();
-    const targetId = req.params.userId;
-    if (targetId === req.user.id) return res.status(400).json({ error: 'Cannot send request to yourself' });
-    const result = await db.follows.follow(req.user.id, targetId);
-    await notifications.create({
-      userId: targetId,
-      title: '👤 Friend Request',
-      body: `${req.user.fullName} sent you a friend request`,
-      type: 'FRIEND_REQUEST',
-      data: { fromUserId: req.user.id, fromName: req.user.fullName, followId: result.id },
-    });
-    res.json({ result, message: 'Friend request sent' });
-  } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-router.patch('/request/:requestId/accept', protect, async (req, res) => {
-  try {
-    const db = getDb();
-    const result = await db.follows.accept(req.params.requestId, req.user.id);
-    res.json({ result, message: 'Friend request accepted' });
-  } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-router.patch('/request/:requestId/decline', protect, async (req, res) => {
-  try {
-    const db = getDb();
-    const { USE_PG, query: pgQuery } = db.USE_PG ? require('../db') : { USE_PG: false, query: null };
-    if (db.USE_PG) {
-      await pgQuery('UPDATE follows SET status=$1 WHERE id=$2 AND following_id=$3', ['REJECTED', req.params.requestId, req.user.id]);
-    } else {
-      // JSON mode — unfollow entirely (decline = remove the request)
-      const allFollows = db.follows;
-      // Find the follow record and remove it via unfollow on follower side
-      // We do this by finding the follow and using the follower's id
-      // Since we only have the id, we patch directly on the JSON store via follows.getPending then filter
-      const pending = await db.follows.getPending(req.user.id);
-      const record = pending.find(f => f.id === req.params.requestId);
-      if (record && record.followerId) {
-        await db.follows.unfollow(record.followerId, req.user.id).catch(() => {});
-      }
-    }
-    res.json({ message: 'Friend request declined' });
-  } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-router.get('/requests/incoming', protect, async (req, res) => {
-  try {
-    const db = getDb();
-    const pending = await db.follows.getPending(req.user.id);
-    res.json({ requests: pending });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.get('/requests/sent', protect, async (req, res) => {
-  try {
-    const db = getDb();
-    if (db.USE_PG) {
-      const { query } = require('../db');
-      const rows = await query('SELECT f.*,u.full_name,u.avatar_url FROM follows f JOIN users u ON u.id=f.following_id WHERE f.follower_id=$1 AND f.status=$2', [req.user.id, 'PENDING']);
-      return res.json({ requests: rows.map(r => ({ id: r.id, followerId: r.follower_id, followingId: r.following_id, status: r.status, user: { id: r.following_id, fullName: r.full_name, avatarUrl: r.avatar_url } })) });
-    }
-    // JSON mode — reuse getPending from the other direction
-    const allFollowing = await db.follows.getFollowing ? db.follows.getFollowing(req.user.id) : [];
-    const pending = allFollowing.filter(f => f.status === 'PENDING');
-    res.json({ requests: pending });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.get('/status/:userId', protect, async (req, res) => {
-  try {
-    const db = getDb();
-    const targetId = req.params.userId;
-    const myId = req.user.id;
-    if (db.USE_PG) {
-      const { query } = require('../db');
-      const sent = await query('SELECT id,status FROM follows WHERE follower_id=$1 AND following_id=$2', [myId, targetId]);
-      const recv = await query('SELECT id,status FROM follows WHERE follower_id=$1 AND following_id=$2', [targetId, myId]);
-      if (sent[0]?.status === 'ACCEPTED' || recv[0]?.status === 'ACCEPTED') return res.json({ status: 'FRIENDS', requestId: sent[0]?.id || recv[0]?.id });
-      if (sent[0]?.status === 'PENDING') return res.json({ status: 'PENDING_SENT', requestId: sent[0].id });
-      if (recv[0]?.status === 'PENDING') return res.json({ status: 'PENDING_RECEIVED', requestId: recv[0].id });
-      return res.json({ status: 'NONE' });
-    }
-    // JSON mode — use existing getStatus plus getPending
-    const sentStatus = await db.follows.getStatus(myId, targetId);
-    const recvStatus = await db.follows.getStatus(targetId, myId);
-    if (sentStatus === 'ACCEPTED' || recvStatus === 'ACCEPTED') return res.json({ status: 'FRIENDS' });
-    if (sentStatus === 'PENDING') {
-      const sentReqs = await db.follows.getPending ? [] : [];
-      return res.json({ status: 'PENDING_SENT' });
-    }
-    if (recvStatus === 'PENDING') return res.json({ status: 'PENDING_RECEIVED' });
-    res.json({ status: 'NONE' });
-  } catch (err) { res.json({ status: 'NONE' }); }
-});
-
-router.get('/count/:userId', protect, async (req, res) => {
-  try {
-    const db = getDb();
-    if (db.USE_PG) {
-      const { query } = require('../db');
-      const rows = await query('SELECT COUNT(*) as cnt FROM follows WHERE (follower_id=$1 OR following_id=$1) AND status=$2', [req.params.userId, 'ACCEPTED']);
-      return res.json({ count: parseInt(rows[0]?.cnt || 0) });
-    }
-    // JSON mode — combine followers + following and deduplicate
-    const [followers, following] = await Promise.all([
-      db.follows.getFollowers(req.params.userId),
-      db.follows.getFollowing(req.params.userId),
-    ]);
-    const ids = new Set([...followers.map(f => f.followerId), ...following.map(f => f.followingId)]);
-    res.json({ count: ids.size });
-  } catch (err) { res.json({ count: 0 }); }
-});

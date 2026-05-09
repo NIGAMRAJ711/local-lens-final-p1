@@ -1,21 +1,70 @@
-/** Review routes: traveler reviews, guide responses, and safety reports. */
 const express = require('express');
 const router = express.Router();
-const { reviews, bookings, guideProfiles, notifications, users } = require('../db');
+const { reviews, bookings, guideProfiles, notifications, users, USE_PG, query } = require('../db');
 const { protect } = require('../middleware/error.middleware');
+
+// PATCH /reviews/:id/respond
+router.patch('/:id/respond', protect, async (req, res) => {
+  try {
+    const { response } = req.body;
+    if (!response?.trim()) return res.status(400).json({ error: 'Response text required' });
+    if (USE_PG) {
+      const rows = await query('UPDATE reviews SET guide_response=$1,responded_at=NOW() WHERE id=$2 AND reviewee_id=$3 RETURNING *', [response.trim(), req.params.id, req.user.id]);
+      if (!rows.length) return res.status(404).json({ error: 'Review not found or not yours to respond to' });
+      // Notify reviewer
+      const review = rows[0];
+      notifications.create({ userId: review.reviewer_id, title: 'Guide replied to your review', body: `${req.user.fullName} responded to your review`, type: 'GENERAL' }).catch(() => {});
+      return res.json({ review: rows[0] });
+    }
+    // JSON mode
+    const { loadStore, saveStore } = require('../db');
+    const store = loadStore('reviews');
+    const idx = store.findIndex(r => r.id === req.params.id && r.revieweeId === req.user.id);
+    if (idx === -1) return res.status(404).json({ error: 'Review not found' });
+    store[idx].guideResponse = response.trim();
+    store[idx].respondedAt = new Date().toISOString();
+    saveStore('reviews', store);
+    res.json({ review: store[idx] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // POST /api/reviews
 router.post('/', protect, async (req, res) => {
   try {
-    const { bookingId, revieweeId, rating, comment } = req.body;
+    const { bookingId, revieweeId, rating, comment, photos } = req.body;
     if (!bookingId || !revieweeId || !rating) return res.status(400).json({ error: 'bookingId, revieweeId and rating required' });
     if (rating < 1 || rating > 5) return res.status(400).json({ error: 'Rating must be 1-5' });
     const booking = await bookings.findById(bookingId);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (booking.status !== 'COMPLETED') return res.status(400).json({ error: 'Can only review completed tours' });
     if (booking.travelerId !== req.user.id) return res.status(403).json({ error: 'Only traveller can submit review' });
-    const review = await reviews.create({ bookingId, reviewerId: req.user.id, revieweeId, rating: parseFloat(rating), comment: comment || '' });
-    await notifications.create({ userId: revieweeId, title: '⭐ New Review!', body: `${req.user.fullName} gave you ${rating} stars`, type: 'REVIEW' });
+
+    const review = await reviews.create({ bookingId, reviewerId: req.user.id, revieweeId, rating: parseFloat(rating), comment: comment || '', photos: photos || [] });
+
+    // Recalculate guide avg_rating and total_reviews
+    const { USE_PG, query } = require('../db');
+    if (USE_PG) {
+      await query(`UPDATE guide_profiles SET
+        avg_rating = (SELECT COALESCE(AVG(rating),0) FROM reviews WHERE reviewee_id=$1),
+        total_reviews = (SELECT COUNT(*) FROM reviews WHERE reviewee_id=$1)
+        WHERE user_id=$1`, [revieweeId]).catch(() => {});
+    } else {
+      // JSON mode: recalculate from all reviews
+      const allGuideReviews = await reviews.findByReviewee(revieweeId);
+      const avg = allGuideReviews.length ? allGuideReviews.reduce((s,r) => s + parseFloat(r.rating), 0) / allGuideReviews.length : 0;
+      const guide = await guideProfiles.findByUserId(revieweeId).catch(() => null);
+      if (guide) await guideProfiles.update(guide.id, { avgRating: Math.round(avg * 10) / 10, totalReviews: allGuideReviews.length });
+    }
+
+    // Notify guide
+    await notifications.create({
+      userId: revieweeId,
+      title: '⭐ New review received!',
+      body: `${req.user.fullName} gave you ${rating} star${rating > 1 ? 's' : ''}`,
+      type: 'NEW_REVIEW',
+      data: { reviewId: review.id, rating, reviewerName: req.user.fullName },
+    }).catch(() => {});
+
     res.status(201).json({ review });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -75,27 +124,6 @@ router.post('/blacklist/:guideUserId', protect, async (req, res) => {
     });
 
     res.json({ message: 'Guide has been blacklisted and their account suspended.' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-
-router.patch('/:id/respond', protect, async (req, res) => {
-  try {
-    const { response } = req.body;
-    if (!response?.trim()) return res.status(400).json({ error: 'Response text required' });
-    if (require('../db').USE_PG) {
-      const { query } = require('../db');
-      const rows = await query('SELECT * FROM reviews WHERE id=$1', [req.params.id]);
-      if (!rows[0]) return res.status(404).json({ error: 'Review not found' });
-      if (rows[0].reviewee_id !== req.user.id) return res.status(403).json({ error: 'Only the reviewed guide can respond' });
-      await query('UPDATE reviews SET guide_response=$1, responded_at=NOW() WHERE id=$2', [response.trim(), req.params.id]);
-      await notifications.create({ userId: rows[0].reviewer_id, title: 'Guide replied to your review', body: `${req.user.fullName} responded to your review`, type: 'REVIEW', data: { reviewId: req.params.id } });
-      return res.json({ message: 'Response saved' });
-    }
-    const { reviews: rv } = require('../db');
-    const review = await rv.findById ? await rv.findById(req.params.id) : null;
-    if (review) await rv.update?.(req.params.id, { guideResponse: response.trim() });
-    res.json({ message: 'Response saved' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

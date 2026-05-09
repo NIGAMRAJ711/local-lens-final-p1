@@ -37,11 +37,6 @@ echo ""
 echo -e "${YELLOW}📦 Setting up backend...${NC}"
 cd "$ROOT_DIR/backend"
 
-if [ ! -f ".env" ] && [ -f ".env.example" ]; then
-  echo "backend/.env not found - copying from .env.example"
-  cp .env.example .env
-fi
-
 if [ ! -d "node_modules" ]; then
   echo "  Installing backend dependencies..."
   npm install --legacy-peer-deps --silent
