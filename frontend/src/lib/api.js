@@ -203,8 +203,5 @@ export const bucketListApi = {
   remove: (id) => api.delete(`/users/bucket-list/${id}`),
 };
 
-export const reviewApi = {
-  respond: (id, response) => api.patch(`/reviews/${id}/respond`, { response }),
-  create: (d) => api.post('/reviews', d),
 };
 
