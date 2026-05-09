@@ -127,7 +127,7 @@ export default function ExplorePage() {
             <X className="w-3.5 h-3.5"/> Clear
           </button>
         )}
-      </form
+      </form>
         <button
           type="button"
           onClick={() => { setPendingFilters(appliedFilters); setShowFilters(!showFilters); }}
