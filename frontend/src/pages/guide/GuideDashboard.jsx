@@ -228,9 +228,6 @@ export default function GuideDashboard() {
                       <button onClick={() => { setRejectingId(null); setRejectReason(''); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs rounded-lg">Cancel</button>
                     </div>
                   )}
-                  <div className="hidden">
-                    </button>
-                  </div>
                 </div>
               ))}
             </div>

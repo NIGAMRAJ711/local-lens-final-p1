@@ -157,6 +157,8 @@ export const mapApi = {
 // Reviews
 export const reviewApi = {
   submit: (d) => api.post('/reviews', d),
+  create: (d) => api.post('/reviews', d),
+  respond: (id, response) => api.patch(`/reviews/${id}/respond`, { response }),
 };
 
 // Chat
@@ -202,4 +204,5 @@ export const bucketListApi = {
   complete: (id) => api.patch(`/users/bucket-list/${id}/complete`),
   remove: (id) => api.delete(`/users/bucket-list/${id}`),
 };
+
 

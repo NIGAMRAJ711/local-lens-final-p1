@@ -127,21 +127,7 @@ export default function ExplorePage() {
             <X className="w-3.5 h-3.5"/> Clear
           </button>
         )}
-      </form>
-        <button
-          type="button"
-          onClick={() => { setPendingFilters(appliedFilters); setShowFilters(!showFilters); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition relative ${showFilters ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:border-green-500'}`}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-          Filters
-          {activeCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-              {activeCount}
-            </span>
-          )}
-        </button>
-      </form>
+      </div>
 
       {/* Active filter chips */}
       {activeCount > 0 && (
