@@ -121,7 +121,8 @@ async function initSchema() {
   console.log('PostgreSQL schema ready');
 }
 
-// USERSconst users = {
+// USERS
+const users = {
   async findAll() {
     if (USE_PG) return (await query('SELECT * FROM users')).map(r=>({id:r.id,email:r.email,phone:r.phone,passwordHash:r.password_hash,fullName:r.full_name,avatarUrl:r.avatar_url,role:r.role,isActive:r.is_active,isEmailVerified:r.is_email_verified,referralCode:r.referral_code,createdAt:r.created_at,updatedAt:r.updated_at}));
     return loadStore('users');
