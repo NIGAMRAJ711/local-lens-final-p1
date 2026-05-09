@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../../components/shared/Layout';
 import { guideApi, bookingApi } from '../../lib/api';
+import { useToast } from '../../context/ToastContext';
 import { MapPin, Clock, Calendar, Star, ChevronRight } from 'lucide-react';
 
 const DURATIONS = [
@@ -18,6 +19,7 @@ const BOOKING_TYPES = [
 ];
 
 export default function BookingPage() {
+  const toast = useToast();
   const { guideId } = useParams();
   const navigate = useNavigate();
   const [guide, setGuide] = useState(null);
@@ -27,6 +29,7 @@ export default function BookingPage() {
   const [form, setForm] = useState({
     duration: 'ONE_HOUR', bookingType: 'PRIVATE',
     date: '', startTime: '', meetupLocation: '', specialRequests: '',
+    numberOfPeople: 1, hotelPreference: '', restaurantPreference: '',
   });
   const [price, setPrice] = useState(null);
 
@@ -50,14 +53,14 @@ export default function BookingPage() {
   }, [form.duration, guide]);
 
   const handleSubmit = async () => {
-    if (!form.date || !form.startTime) { alert('Please fill all required fields'); return; }
+    if (!form.date || !form.startTime) { toast.error('Missing fields', 'Please fill all required fields'); return; }
     setSubmitting(true);
     try {
       const data = await bookingApi.create({ guideUserId: guide.userId, ...form });
-      alert('Booking request sent! The guide will confirm shortly.');
+      toast.success('Booking sent! 🎉', 'The guide will confirm shortly.');
       navigate('/dashboard');
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -161,6 +164,39 @@ export default function BookingPage() {
                 <input className="input-field" placeholder="Where should the guide meet you?" value={form.meetupLocation}
                   onChange={e => setForm(f => ({ ...f, meetupLocation: e.target.value }))} />
               </div>
+
+              {/* Your Preferences section */}
+              <div className="border-t pt-4">
+                <h4 className="text-sm font-semibold text-gray-800 mb-3">Your Preferences</h4>
+
+                {/* Number of people with +/- */}
+                <div className="mb-4">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">How many people are joining? *</label>
+                  <div className="flex items-center gap-3">
+                    <button type="button"
+                      onClick={() => setForm(f => ({ ...f, numberOfPeople: Math.max(1, f.numberOfPeople - 1) }))}
+                      className="w-9 h-9 rounded-lg border-2 border-gray-200 flex items-center justify-center text-lg font-bold text-gray-600 hover:border-green-400 transition">−</button>
+                    <span className="w-12 text-center text-lg font-bold text-gray-900">{form.numberOfPeople}</span>
+                    <button type="button"
+                      onClick={() => setForm(f => ({ ...f, numberOfPeople: Math.min(20, f.numberOfPeople + 1) }))}
+                      className="w-9 h-9 rounded-lg border-2 border-gray-200 flex items-center justify-center text-lg font-bold text-gray-600 hover:border-green-400 transition">+</button>
+                    <span className="text-xs text-gray-400 ml-1">person{form.numberOfPeople > 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Hotel / Stay preference <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <input className="input-field" placeholder="e.g. Taj Hotel, Airbnb near MG Road, budget hostel"
+                    value={form.hotelPreference} onChange={e => setForm(f => ({ ...f, hotelPreference: e.target.value }))} />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Restaurant / Food preference <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <input className="input-field" placeholder="e.g. vegetarian only, local street food, rooftop restaurant"
+                    value={form.restaurantPreference} onChange={e => setForm(f => ({ ...f, restaurantPreference: e.target.value }))} />
+                </div>
+              </div>
+
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Special Requests</label>
                 <textarea className="input-field" rows={3} placeholder="Any preferences or requirements?"
@@ -180,6 +216,7 @@ export default function BookingPage() {
                 <div className="flex justify-between"><span className="text-gray-600">Guide</span><span className="font-medium">{guide.user?.fullName}</span></div>
                 <div className="flex justify-between"><span className="text-gray-600">Type</span><span className="font-medium">{BOOKING_TYPES.find(t => t.value === form.bookingType)?.label}</span></div>
                 <div className="flex justify-between"><span className="text-gray-600">Duration</span><span className="font-medium">{DURATIONS.find(d => d.value === form.duration)?.label}</span></div>
+                <div className="flex justify-between"><span className="text-gray-600">People</span><span className="font-medium">{form.numberOfPeople} person{form.numberOfPeople > 1 ? 's' : ''}</span></div>
                 <div className="flex justify-between"><span className="text-gray-600">Date</span><span className="font-medium">{form.date}</span></div>
                 <div className="flex justify-between"><span className="text-gray-600">Time</span><span className="font-medium">{form.startTime}</span></div>
                 {form.meetupLocation && <div className="flex justify-between"><span className="text-gray-600">Meetup</span><span className="font-medium">{form.meetupLocation}</span></div>}

@@ -11,9 +11,11 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
     setLoading(true);
     try {
       const user = await login(form.email, form.password);
@@ -21,7 +23,7 @@ export default function LoginPage() {
       if (user.role === 'GUIDE') navigate('/guide-dashboard');
       else navigate('/dashboard');
     } catch (err) {
-      toast.error(err.message || 'Invalid email or password');
+      setError(err.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
@@ -61,6 +63,12 @@ export default function LoginPage() {
           <div className="flex justify-end">
             <Link to="/forgot-password" className="text-sm text-green-600 hover:underline">Forgot password?</Link>
           </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+              {error}
+            </div>
+          )}
 
           <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-base">
             {loading ? 'Signing in...' : 'Sign In'}

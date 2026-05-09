@@ -1,12 +1,99 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { reelApi, uploadApi } from '../lib/api';
+import { reelApi, uploadApi, bucketListApi } from '../lib/api';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Heart, Share2, Upload, X, Film, MapPin, UserPlus, UserCheck, Play, Pause, Volume2, VolumeX, ArrowLeft } from 'lucide-react';
 
 const REEL_TYPES = ['GENERAL', 'GUIDE_PROMO', 'TRAVELER_EXPERIENCE', 'HIDDEN_GEM', 'FOOD_SPOT', 'VIEWPOINT'];
+
+
+// Per-reel video component with IntersectionObserver autoplay
+function ReelVideo({ reel, isCurrent, muted, playing, onTogglePlay, videoRefs, idx }) {
+  const videoRef = useRef(null);
+  const [hasError, setHasError] = useState(false);
+  const [isPaused, setIsPaused] = useState(true);
+
+  useEffect(() => {
+    if (videoRef.current) videoRefs.current[idx] = videoRef.current;
+  }, [idx, videoRefs]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && entry.intersectionRatio > 0.6) {
+          video.muted = muted;
+          video.play().then(() => setIsPaused(false)).catch(() => {});
+          reelApi.view(reel.id).catch(() => {});
+        } else {
+          video.pause();
+          setIsPaused(true);
+        }
+      },
+      { threshold: 0.6 }
+    );
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, [reel.id, muted]);
+
+  // Sync muted
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+  }, [muted]);
+
+  // Sync playing state from parent tap
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isCurrent) return;
+    if (playing) { video.play().then(() => setIsPaused(false)).catch(() => {}); }
+    else { video.pause(); setIsPaused(true); }
+  }, [playing, isCurrent]);
+
+  if (hasError) {
+    return (
+      <div
+        className="absolute inset-0 flex flex-col items-center justify-center"
+        style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' }}
+        onClick={onTogglePlay}
+      >
+        <MapPin className="w-12 h-12 text-white/40 mb-3" />
+        <p className="text-white font-semibold text-center px-6">{reel.caption}</p>
+        {reel.locationName && <p className="text-white/60 text-sm mt-2">{reel.locationName}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <video
+        ref={videoRef}
+        src={reel.videoUrl}
+        poster={reel.thumbnailUrl || undefined}
+        preload="metadata"
+        className="absolute inset-0 w-full h-full object-cover"
+        loop
+        playsInline
+        muted={muted}
+        onError={() => setHasError(true)}
+        onPlay={() => setIsPaused(false)}
+        onPause={() => setIsPaused(true)}
+        onClick={onTogglePlay}
+      />
+      {/* Minimal transparent play indicator — shown only when paused */}
+      {isPaused && (
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ transition: 'opacity 0.2s' }}
+        >
+          <Play className="text-white" style={{ width: 48, height: 48, opacity: 0.75, filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.5))' }} />
+        </div>
+      )}
+    </>
+  );
+}
 
 export default function ReelsPage() {
   const { user } = useAuth();
@@ -18,7 +105,18 @@ export default function ReelsPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [uploadForm, setUploadForm] = useState({ caption: '', reelType: 'GENERAL', city: '', locationName: '', videoUrl: '', thumbnailUrl: '' });
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadProgressText, setUploadProgressText] = useState('');
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState('');
+  const videoInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+
+  // Bucket list state
+  const [activeTab, setActiveTab] = useState('reels');
+  const [bucketList, setBucketList] = useState([]);
+  const [bucketLoading, setBucketLoading] = useState(false);
+  const [showAddBucket, setShowAddBucket] = useState(false);
+  const [bucketForm, setBucketForm] = useState({ city: '', description: '' });
   const [likedReels, setLikedReels] = useState(new Set());
   const [followStatuses, setFollowStatuses] = useState({});
   const [muted, setMuted] = useState(false);
@@ -28,6 +126,41 @@ export default function ReelsPage() {
   const touchStartY = useRef(0);
 
   useEffect(() => { loadReels(); }, []);
+  useEffect(() => { if (activeTab === 'bucket') loadBucketList(); }, [activeTab]);
+
+  const loadBucketList = async () => {
+    setBucketLoading(true);
+    try {
+      const data = await bucketListApi.getAll();
+      setBucketList(data.items || []);
+    } catch {} finally { setBucketLoading(false); }
+  };
+
+  const handleAddBucket = async (e) => {
+    e.preventDefault();
+    if (!bucketForm.city) return;
+    try {
+      const data = await bucketListApi.add(bucketForm);
+      setBucketList(prev => [data.item, ...prev]);
+      setBucketForm({ city: '', description: '' });
+      setShowAddBucket(false);
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleBucketComplete = async (id) => {
+    try {
+      await bucketListApi.complete(id);
+      setBucketList(prev => prev.map(i => i.id === id ? { ...i, isCompleted: true, completedAt: new Date().toISOString() } : i));
+      toast.success('Added to completed! ✓');
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleBucketRemove = async (id) => {
+    try {
+      await bucketListApi.remove(id);
+      setBucketList(prev => prev.filter(i => i.id !== id));
+    } catch (err) { toast.error(err.message); }
+  };
 
   const loadReels = async () => {
     try {
@@ -37,21 +170,14 @@ export default function ReelsPage() {
     finally { setLoading(false); }
   };
 
-  // Auto-play current reel, pause others
+  // Pause all except current when index changes
   useEffect(() => {
     Object.entries(videoRefs.current).forEach(([idx, video]) => {
       if (!video) return;
-      if (parseInt(idx) === currentIdx) {
-        video.muted = muted;
-        if (playing) video.play().catch(() => {});
-        else video.pause();
-        reelApi.view(reels[currentIdx]?.id).catch(() => {});
-      } else {
-        video.pause();
-        video.currentTime = 0;
-      }
+      if (parseInt(idx) !== currentIdx) { video.pause(); video.currentTime = 0; }
+      else { video.muted = muted; }
     });
-  }, [currentIdx, playing, muted, reels]);
+  }, [currentIdx, muted]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -106,19 +232,43 @@ export default function ReelsPage() {
     } catch {}
   };
 
-  const handleVideoUpload = async (e) => {
+  const handleVideoSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 100 * 1024 * 1024) { toast.error('Video must be under 100MB'); return; }
-    setUploadProgress('Uploading video...');
+    const validTypes = ['video/mp4','video/quicktime','video/webm','video/3gpp'];
+    if (!validTypes.includes(file.type)) { toast.error('Invalid format', 'Use MP4, MOV, or WebM'); return; }
+    if (file.size > 100 * 1024 * 1024) { toast.error('Video too large', 'Maximum size is 100MB'); return; }
+    // Show preview
+    const preview = URL.createObjectURL(file);
+    setVideoPreviewUrl(preview);
+    setUploadProgress(0);
+    setUploadProgressText('Uploading...');
     try {
-      const data = await uploadApi.video(file);
-      setUploadForm(f => ({ ...f, videoUrl: data.url, thumbnailUrl: data.thumbnailUrl || '' }));
-      setUploadProgress('Video ready! ✓');
+      // Use XMLHttpRequest for progress tracking
+      const formData = new FormData();
+      formData.append('file', file);
+      const token = localStorage.getItem('accessToken');
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const result = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+        };
+        xhr.onload = () => {
+          try { const d = JSON.parse(xhr.responseText); d.error ? reject(new Error(d.error)) : resolve(d); }
+          catch { reject(new Error('Upload failed')); }
+        };
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.open('POST', baseUrl + '/upload/video');
+        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+        xhr.send(formData);
+      });
+      setUploadForm(f => ({ ...f, videoUrl: result.url, thumbnailUrl: result.thumbnailUrl || '' }));
+      setUploadProgressText('Video ready! ✓');
       toast.success('Video uploaded!');
     } catch (err) {
       toast.error('Upload failed: ' + err.message);
-      setUploadProgress('');
+      setUploadProgressText(''); setUploadProgress(0); setVideoPreviewUrl('');
     }
   };
 
@@ -200,31 +350,21 @@ export default function ReelsPage() {
           className="flex-1 relative overflow-hidden"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          onClick={() => setPlaying(p => !p)}
         >
-          {/* Video */}
-          <video
+          {/* ReelVideo with IntersectionObserver autoplay + error fallback */}
+          <ReelVideo
             key={currentReel?.id}
-            ref={el => videoRefs.current[currentIdx] = el}
-            src={currentReel?.videoUrl}
-            poster={currentReel?.thumbnailUrl || undefined}
-            className="absolute inset-0 w-full h-full object-cover"
-            loop
-            playsInline
+            reel={currentReel}
+            isCurrent={true}
             muted={muted}
+            playing={playing}
+            onTogglePlay={() => setPlaying(p => !p)}
+            videoRefs={videoRefs}
+            idx={currentIdx}
           />
 
           {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/70" />
-
-          {/* Play/pause indicator */}
-          {!playing && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="bg-black/40 rounded-full p-5">
-                <Play className="w-10 h-10 text-white" />
-              </div>
-            </div>
-          )}
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/70 pointer-events-none" />
 
           {/* Right side actions */}
           <div className="absolute right-4 bottom-32 flex flex-col items-center gap-5 z-10">
@@ -318,9 +458,9 @@ export default function ReelsPage() {
                 <div>
                   {uploadForm.videoUrl ? (
                     <div className="relative h-48 bg-black rounded-xl overflow-hidden">
-                      <video src={uploadForm.videoUrl} className="w-full h-full object-cover" />
+                      <video src={videoPreviewUrl || uploadForm.videoUrl} controls className="w-full h-full object-cover" style={{ maxHeight: 200 }} />
                       <div className="absolute top-2 right-2">
-                        <button type="button" onClick={() => setUploadForm(f => ({ ...f, videoUrl: '', thumbnailUrl: '' }))}
+                        <button type="button" onClick={() => { setUploadForm(f => ({ ...f, videoUrl: '', thumbnailUrl: '' })); setVideoPreviewUrl(''); setUploadProgress(0); setUploadProgressText(''); }}
                           className="bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center">
                           <X className="w-4 h-4" />
                         </button>
@@ -328,12 +468,24 @@ export default function ReelsPage() {
                       <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full">✓ Video ready</div>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-green-500 transition">
-                      <Film className="w-10 h-10 text-gray-400 mb-2" />
-                      <span className="text-sm text-gray-500">{uploadProgress || 'Tap to upload video (max 100MB)'}</span>
-                      <span className="text-xs text-gray-400 mt-1">MP4, MOV, WebM</span>
-                      <input type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" />
-                    </label>
+                    <div className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-gray-300 rounded-xl gap-3">
+                      <Film className="w-10 h-10 text-gray-400" />
+                      {uploadProgress > 0 && uploadProgress < 100 && (
+                        <div className="w-40">
+                          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-green-500 transition-all" style={{ width: uploadProgress + '%' }} />
+                          </div>
+                          <p className="text-xs text-center text-gray-500 mt-1">{uploadProgress}%</p>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => videoInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition">📁 Gallery</button>
+                        <button type="button" onClick={() => cameraInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-2 bg-green-100 text-green-700 rounded-xl text-sm font-medium hover:bg-green-200 transition">📹 Record</button>
+                      </div>
+                      <input ref={videoInputRef} type="file" accept="video/*" onChange={handleVideoSelect} className="hidden" />
+                      <input ref={cameraInputRef} type="file" accept="video/*" capture="environment" onChange={handleVideoSelect} className="hidden" />
+                      <span className="text-xs text-gray-400">{uploadProgressText || 'MP4, MOV, WebM — max 100MB'}</span>
+                    </div>
                   )}
                 </div>
 

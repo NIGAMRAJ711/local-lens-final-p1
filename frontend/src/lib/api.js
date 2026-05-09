@@ -117,6 +117,10 @@ export const guideApi = {
   updateLocation: (lat, lng) => api.patch('/guides/location', { latitude: lat, longitude: lng }),
   addHiddenGem: (d) => api.post('/guides/hidden-gems', d),
   getDashboardStats: () => api.get('/guides/dashboard/stats'),
+  updateCoverImage: (coverImage) => api.patch('/guides/cover-image', { coverImage }),
+  getAvailability: (guideId) => api.get(`/guides/${guideId}/availability`),
+  addAvailabilitySlot: (data) => api.post('/guides/availability', data),
+  deleteAvailabilitySlot: (id) => api.delete(`/guides/availability/${id}`),
 };
 
 // Bookings
@@ -144,15 +148,6 @@ export const groupTourApi = {
   myJoined: () => api.get('/group-tours/my/joined'),
 };
 
-export const communityApi = {
-  getAll: () => api.get('/communities'),
-  getOne: (id) => api.get(`/communities/${id}`),
-  create: (data) => api.post('/communities', data),
-  join: (id) => api.post(`/communities/${id}/join`),
-  leave: (id) => api.delete(`/communities/${id}/leave`),
-  createPost: (id, data) => api.post(`/communities/${id}/posts`, data),
-};
-
 // Map
 export const mapApi = {
   getGuides: (params) => api.get('/map/guides?' + new URLSearchParams(params).toString()),
@@ -168,6 +163,10 @@ export const reviewApi = {
 export const chatApi = {
   getMessages: (bookingId) => api.get(`/chat/${bookingId}`),
   send: (bookingId, content, receiverId) => api.post(`/chat/${bookingId}`, { content, receiverId }),
+  getInbox: () => api.get('/chat/inbox'),
+  getContacts: () => api.get('/chat/contacts'),
+  getConversation: (userId) => api.get(`/chat/dm/${userId}`),
+  sendDirect: (userId, content) => api.post(`/chat/dm/${userId}`, { content }),
 };
 
 // Notifications
@@ -182,6 +181,13 @@ export const friendsApi = {
   getFriends: () => api.get('/friends'),
   search: (q) => api.get(`/friends/search?q=${encodeURIComponent(q)}`),
   getProfile: (userId) => api.get(`/friends/profile/${userId}`),
+  sendRequest: (userId) => api.post(`/friends/request/${userId}`),
+  acceptRequest: (id) => api.patch(`/friends/request/${id}/accept`),
+  declineRequest: (id) => api.patch(`/friends/request/${id}/decline`),
+  getStatus: (userId) => api.get(`/friends/status/${userId}`),
+  getFriendCount: (userId) => api.get(`/friends/count/${userId}`),
+  getIncomingRequests: () => api.get('/friends/requests/incoming'),
+  getSentRequests: () => api.get('/friends/requests/sent'),
 };
 
 // Upload
@@ -189,3 +195,16 @@ export const uploadApi = {
   image: (file) => api.uploadFile('/upload/image', file),
   video: (file) => api.uploadFile('/upload/video', file),
 };
+
+export const bucketListApi = {
+  getAll: () => api.get('/users/bucket-list'),
+  add: (data) => api.post('/users/bucket-list', data),
+  complete: (id) => api.patch(`/users/bucket-list/${id}/complete`),
+  remove: (id) => api.delete(`/users/bucket-list/${id}`),
+};
+
+export const reviewApi = {
+  respond: (id, response) => api.patch(`/reviews/${id}/respond`, { response }),
+  create: (d) => api.post('/reviews', d),
+};
+

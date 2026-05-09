@@ -8,7 +8,6 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [devToken, setDevToken] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -16,8 +15,7 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     try {
       const data = await authApi.forgotPassword(email);
-      setMessage(data.message);
-      if (data.devToken) setDevToken(data.devToken);
+      setMessage(data.message || 'If that email is registered, a reset link has been sent.');
     } catch (err) {
       setError(err.message || 'Failed to send reset email');
     } finally {
@@ -43,19 +41,6 @@ export default function ForgotPasswordPage() {
               <Mail className="w-8 h-8 mx-auto mb-2 text-green-500" />
               <p className="font-medium">{message}</p>
             </div>
-
-            {devToken && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 text-sm">
-                <p className="font-medium text-yellow-800 mb-2">🔧 Dev Mode — Reset Token:</p>
-                <p className="break-all text-xs text-yellow-700 font-mono">{devToken}</p>
-                <Link
-                  to={`/reset-password?token=${devToken}`}
-                  className="mt-2 block text-center text-green-600 font-medium hover:underline"
-                >
-                  Click here to reset password →
-                </Link>
-              </div>
-            )}
 
             <Link to="/login" className="flex items-center justify-center gap-2 text-green-600 hover:underline text-sm">
               <ArrowLeft className="w-4 h-4" /> Back to Login

@@ -8,13 +8,17 @@ export default function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
-  const [form, setForm] = useState({ fullName: '', email: '', phone: '', password: '', role: 'TRAVELER' });
+  const [form, setForm] = useState({ fullName: '', phone: '', email: '', password: '', role: 'TRAVELER' });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+
+  const validatePhone = (val) => /^[6-9]\d{9}$/.test(val);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.phone) { toast.error('Phone number is required'); return; }
+    if (!form.phone) { setPhoneError('Phone number is required'); return; }
+    if (!validatePhone(form.phone)) { setPhoneError('Enter a valid 10-digit mobile number'); return; }
     if (form.password.length < 8) { toast.error('Password must be at least 8 characters'); return; }
     setLoading(true);
     try {
@@ -47,15 +51,19 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-            <input type="email" className="input-field" placeholder="you@example.com"
-              value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
+            <input type="tel" className={`input-field ${phoneError ? 'border-red-400 focus:ring-red-300' : ''}`}
+              placeholder="10-digit mobile number"
+              value={form.phone}
+              onChange={e => { setForm(f => ({ ...f, phone: e.target.value })); setPhoneError(''); }}
+              required />
+            {phoneError && <p className="mt-1 text-xs text-red-600">{phoneError}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
-            <input type="tel" className="input-field" placeholder="+91 9876543210"
-              value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} required />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+            <input type="email" className="input-field" placeholder="you@example.com"
+              value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
           </div>
 
           <div>

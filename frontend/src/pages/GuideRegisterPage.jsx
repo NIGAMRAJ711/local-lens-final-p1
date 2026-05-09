@@ -21,6 +21,9 @@ export default function GuideRegisterPage() {
     languages: [], expertiseTags: [],
     isPhotographer: false,
     hourlyRate: '', halfDayRate: '', fullDayRate: '', photographyRate: '',
+    placesOneHour: '', placesHalfDay: '', placesFullDay: '',
+    providesCab: false, cabPricePerKm: '', cabFullDayPrice: '',
+    hotelRecommendations: '', restaurantRecommendations: '',
   });
 
   const toggle = (key, val) => {
@@ -47,8 +50,8 @@ export default function GuideRegisterPage() {
       await switchRole('GUIDE');
       await refreshUser();
       setDone(true);
-      toast.success('🎉 Guide profile created! Welcome to LocalLens Guides!');
-      setTimeout(() => navigate('/guide-dashboard'), 2000);
+      toast.success('Guide profile created!', 'Your pin is now visible on the map 📍');
+      setTimeout(() => navigate('/map'), 1500);
     } catch (err) {
       if (err.message?.includes('already exists')) {
         // Already a guide — just switch
@@ -90,6 +93,7 @@ export default function GuideRegisterPage() {
             { n: 1, label: 'Your Story' },
             { n: 2, label: 'Expertise' },
             { n: 3, label: 'Pricing' },
+            { n: 4, label: 'Tour Details' },
           ].map((s, idx) => (
             <div key={s.n} className="flex items-center gap-2 flex-1">
               <button
@@ -103,7 +107,7 @@ export default function GuideRegisterPage() {
                 {s.n < step ? '✓' : s.n}
               </button>
               <span className="text-xs text-gray-500 hidden md:block">{s.label}</span>
-              {idx < 2 && <div className={`flex-1 h-1 rounded-full ${s.n < step ? 'bg-green-500' : 'bg-gray-100'}`} />}
+              {idx < 3 && <div className={`flex-1 h-1 rounded-full ${s.n < step ? 'bg-green-500' : 'bg-gray-100'}`} />}
             </div>
           ))}
         </div>
@@ -278,6 +282,105 @@ export default function GuideRegisterPage() {
 
                 <div className="flex gap-3">
                   <button type="button" onClick={() => setStep(2)} className="btn-secondary flex-1">← Back</button>
+                  <button type="button" onClick={() => {
+                    if (!form.hourlyRate) { toast.error('Please set at least 1 hour rate'); return; }
+                    setStep(4);
+                  }} className="btn-primary flex-1">Next: Tour Details →</button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Tour Details */}
+            {step === 4 && (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 mb-1">Tour details & recommendations</h2>
+                  <p className="text-sm text-gray-500">Help travellers know what to expect from your tours</p>
+                </div>
+
+                {/* Places covered */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">📍 Tour Details</h3>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Places covered in 1 Hour tour *</label>
+                    <textarea className="input-field" rows={2}
+                      placeholder="e.g. Gateway of India, Colaba Causeway"
+                      value={form.placesOneHour}
+                      onChange={e => setForm(f => ({ ...f, placesOneHour: e.target.value }))} required />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Places covered in Half Day tour *</label>
+                    <textarea className="input-field" rows={2}
+                      placeholder="e.g. Marine Drive, Elephanta Caves, CST Station"
+                      value={form.placesHalfDay}
+                      onChange={e => setForm(f => ({ ...f, placesHalfDay: e.target.value }))} required />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Places covered in Full Day tour *</label>
+                    <textarea className="input-field" rows={2}
+                      placeholder="e.g. Dharavi, Dhobi Ghat, Juhu Beach, Bandra Fort, Worli Sea Link"
+                      value={form.placesFullDay}
+                      onChange={e => setForm(f => ({ ...f, placesFullDay: e.target.value }))} required />
+                  </div>
+                </div>
+
+                {/* Transport */}
+                <div className="space-y-3 border-t pt-4">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">🚗 Transport</h3>
+                  <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-gray-200 cursor-pointer hover:border-green-400 transition">
+                    <input type="checkbox" checked={form.providesCab}
+                      onChange={e => setForm(f => ({ ...f, providesCab: e.target.checked }))}
+                      className="w-4 h-4 accent-green-600" />
+                    <div>
+                      <div className="font-medium text-sm">I provide cab / transport service</div>
+                      <p className="text-xs text-gray-500">Travellers can include transport in their booking</p>
+                    </div>
+                  </label>
+                  {form.providesCab && (
+                    <div className="grid grid-cols-2 gap-3 pl-2">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1 block">Cab price per km (₹) *</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">₹</span>
+                          <input type="number" className="input-field pl-7" placeholder="14" min="1"
+                            value={form.cabPricePerKm}
+                            onChange={e => setForm(f => ({ ...f, cabPricePerKm: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1 block">Full day cab price (₹)</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">₹</span>
+                          <input type="number" className="input-field pl-7" placeholder="1800" min="0"
+                            value={form.cabFullDayPrice}
+                            onChange={e => setForm(f => ({ ...f, cabFullDayPrice: e.target.value }))} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Recommendations */}
+                <div className="space-y-3 border-t pt-4">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">💡 Recommendations</h3>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Hotels you recommend <span className="text-gray-400 font-normal">(optional)</span></label>
+                    <textarea className="input-field" rows={2}
+                      placeholder="e.g. Taj Mahal Palace (luxury), Zostel Mumbai (budget), Airbnb in Bandra"
+                      value={form.hotelRecommendations}
+                      onChange={e => setForm(f => ({ ...f, hotelRecommendations: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Restaurants / food spots you recommend <span className="text-gray-400 font-normal">(optional)</span></label>
+                    <textarea className="input-field" rows={2}
+                      placeholder="e.g. Leopold Cafe, Bademiya kebabs, Cafe Madras for breakfast"
+                      value={form.restaurantRecommendations}
+                      onChange={e => setForm(f => ({ ...f, restaurantRecommendations: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setStep(3)} className="btn-secondary flex-1">← Back</button>
                   <button type="submit" disabled={submitting} className="btn-primary flex-1 py-3">
                     {submitting ? (
                       <span className="flex items-center justify-center gap-2">

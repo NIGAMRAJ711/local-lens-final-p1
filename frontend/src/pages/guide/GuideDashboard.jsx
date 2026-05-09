@@ -49,13 +49,32 @@ export default function GuideDashboard() {
     }
   };
 
+  const [rejectingId, setRejectingId] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+
   const handleBookingAction = async (bookingId, status) => {
     setActionLoading(l => ({ ...l, [bookingId]: status }));
     try {
       await bookingApi.updateStatus(bookingId, status);
       setBookings(bs => bs.map(b => b.id === bookingId ? { ...b, status } : b));
-      if (status === 'CONFIRMED') toast.success('Booking confirmed! Traveller has been notified ✅');
+      if (status === 'CONFIRMED') toast.success('Booking confirmed!', 'Traveller has been notified ✅');
       else toast.info('Booking declined');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setActionLoading(l => ({ ...l, [bookingId]: null }));
+    }
+  };
+
+  const handleReject = async (bookingId) => {
+    if (!rejectReason.trim()) { toast.error('Please enter a reason for rejection'); return; }
+    setActionLoading(l => ({ ...l, [bookingId]: 'rejecting' }));
+    try {
+      await bookingApi.reject(bookingId, rejectReason);
+      setBookings(bs => bs.map(b => b.id === bookingId ? { ...b, status: 'CANCELLED' } : b));
+      setRejectingId(null);
+      setRejectReason('');
+      toast.info('Booking rejected', 'Traveller has been notified');
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -145,35 +164,6 @@ export default function GuideDashboard() {
         ))}
       </div>
 
-      {/* Earnings Chart */}
-      {stats?.earnings?.last7Days && (
-        <div className="card p-6 mb-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="font-bold text-gray-900 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-green-600" /> Weekly Earnings Trend</h2>
-            <span className="text-sm font-medium text-gray-500">Last 7 Days</span>
-          </div>
-          <div className="flex items-end justify-between gap-2 h-48 mt-4 pt-4 border-t border-gray-100">
-            {stats.earnings.last7Days.map((day, i) => {
-              const maxAmount = Math.max(...stats.earnings.last7Days.map(d => d.amount), 100);
-              const heightPct = Math.max((day.amount / maxAmount) * 100, 2);
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
-                  <div className="relative w-full flex justify-center">
-                    <div className="absolute -top-8 bg-gray-800 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-10">
-                      ₹{day.amount.toFixed(0)}
-                    </div>
-                    <div className="w-full max-w-[40px] bg-green-100 rounded-t-lg relative overflow-hidden group-hover:bg-green-200 transition" style={{ height: '140px' }}>
-                      <div className="absolute bottom-0 left-0 right-0 bg-green-500 rounded-t-lg transition-all duration-500" style={{ height: `${heightPct}%` }} />
-                    </div>
-                  </div>
-                  <span className="text-xs font-medium text-gray-500">{format(new Date(day.date), 'EEE')}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       <div className="grid md:grid-cols-2 gap-6">
         {/* Pending Requests */}
         <div>
@@ -223,12 +213,22 @@ export default function GuideDashboard() {
                       Accept
                     </button>
                     <button
-                      onClick={() => handleBookingAction(b.id, 'CANCELLED')}
+                      onClick={() => setRejectingId(rejectingId === b.id ? null : b.id)}
                       disabled={!!actionLoading[b.id]}
                       className="flex-1 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 text-sm py-2 rounded-xl hover:bg-red-100 transition disabled:opacity-50"
                     >
                       {actionLoading[b.id] === 'CANCELLED' ? <div className="animate-spin w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full" /> : <XCircle className="w-4 h-4" />}
                       Decline
+                    </button>
+                  </div>
+                  {rejectingId === b.id && (
+                    <div className="mt-2 flex gap-2">
+                      <input className="input-field text-sm flex-1 py-1.5" placeholder="Reason for rejection..." value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
+                      <button onClick={() => handleReject(b.id)} disabled={!!actionLoading[b.id]} className="px-3 py-1.5 bg-red-600 text-white text-xs rounded-lg font-medium hover:bg-red-700 transition">Send</button>
+                      <button onClick={() => { setRejectingId(null); setRejectReason(''); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs rounded-lg">Cancel</button>
+                    </div>
+                  )}
+                  <div className="hidden">
                     </button>
                   </div>
                 </div>

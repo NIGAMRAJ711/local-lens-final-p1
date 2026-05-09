@@ -25,6 +25,8 @@ router.post('/register', async (req, res) => {
   try {
     const { email, password, fullName, phone, role } = req.body;
     if (!email || !password || !fullName) return res.status(400).json({ error: 'email, password and fullName are required' });
+    if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+    if (!/^(\+91|91)?[6-9]\d{9}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid 10-digit Indian mobile number' });
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const existing = await users.findByEmail(email);
     if (existing) return res.status(409).json({ error: 'Email already registered' });
@@ -71,7 +73,7 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
     const user = await users.findByEmail(email);
-    if (!user) return res.status(404).json({ error: 'No account found with this email' });
+    if (!user) return res.json({ message: 'If that email is registered, a reset link has been sent.' });
     const resetToken = jwt.sign({ userId: user.id, purpose: 'reset' }, JWT_SECRET, { expiresIn: '1h' });
     const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
     // Try email if configured
@@ -80,11 +82,10 @@ router.post('/forgot-password', async (req, res) => {
         const nodemailer = require('nodemailer');
         const t = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: parseInt(process.env.SMTP_PORT||587), auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
         await t.sendMail({ from: process.env.EMAIL_FROM||process.env.SMTP_USER, to: email, subject: 'LocalLens — Reset your password', html: `<p>Click to reset (valid 1 hour):</p><a href="${resetLink}">${resetLink}</a>` });
-        return res.json({ message: 'Password reset link sent to your email.' });
       } catch(e) { console.error('Email error:', e.message); }
     }
-    // Dev mode: return token directly
-    res.json({ message: 'If that email is registered, a reset link has been sent.', devToken: resetToken, devLink: resetLink });
+    // Always return the same generic message — never expose the token in the response
+    res.json({ message: 'If that email is registered, a reset link has been sent.' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

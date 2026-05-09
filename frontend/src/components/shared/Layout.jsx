@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react';
 import { notificationApi } from '../../lib/api';
 import {
   Home, Compass, Users, Film, Map, MessageCircle, Bell, User,
-  Settings, LogOut, Globe, UserCheck, Menu, X, Plus, ArrowRightLeft
+  Settings, LogOut, Globe, UserCheck, Menu, X, Plus, ArrowRightLeft,
+  Moon, Sun
 } from 'lucide-react';
 
 export default function Layout({ children, title }) {
@@ -13,15 +14,40 @@ export default function Layout({ children, title }) {
   const toast = useToast();
   const location = useLocation();
   const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
+
+  const [menuOpen, setMenuOpen] = useState(false);     // avatar dropdown (desktop)
+  const [mobileOpen, setMobileOpen] = useState(false); // mobile nav sheet
   const [unreadCount, setUnreadCount] = useState(0);
   const [switching, setSwitching] = useState(false);
+  const [dark, setDark] = useState(false);
 
+  // Apply saved theme on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') {
+      document.documentElement.classList.add('dark');
+      setDark(true);
+    }
+  }, []);
+
+  // Fetch unread notifications
   useEffect(() => {
     notificationApi.getAll().then(d => {
       setUnreadCount(d.notifications?.filter(n => !n.isRead).length || 0);
     }).catch(() => {});
   }, [location.pathname]);
+
+  const toggleDark = () => {
+    const next = !dark;
+    setDark(next);
+    if (next) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  };
 
   const isGuide = user?.role === 'GUIDE' || user?.role === 'BOTH';
   const isInGuideDashboard = location.pathname === '/guide-dashboard';
@@ -30,7 +56,6 @@ export default function Layout({ children, title }) {
     { path: '/dashboard', icon: Home, label: 'Home' },
     { path: '/explore', icon: Compass, label: 'Explore' },
     { path: '/group-tours', icon: Users, label: 'Tours' },
-    { path: '/communities', icon: Users, label: 'Groups' },
     { path: '/reels', icon: Film, label: 'Reels' },
     { path: '/map', icon: Map, label: 'Map' },
     { path: '/messages', icon: MessageCircle, label: 'Chat' },
@@ -65,16 +90,17 @@ export default function Layout({ children, title }) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Top Nav */}
+      {/* ── Top Nav ──────────────────────────────────────────────── */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
+
           {/* Logo */}
           <Link to="/dashboard" className="flex items-center gap-2 font-bold text-green-600 text-lg flex-shrink-0">
             <Globe className="w-5 h-5" />
             LocalLens
           </Link>
 
-          {/* Desktop nav */}
+          {/* Desktop nav links */}
           <div className="hidden md:flex items-center gap-1">
             {navItems.map(item => (
               <Link
@@ -92,8 +118,21 @@ export default function Layout({ children, title }) {
             ))}
           </div>
 
-          {/* Right side */}
-          <div className="flex items-center gap-2">
+          {/* Right side controls */}
+          <div className="flex items-center gap-1">
+
+            {/* Dark mode toggle */}
+            <button
+              onClick={toggleDark}
+              className="p-2 rounded-lg hover:bg-gray-100 transition"
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {dark
+                ? <Sun className="w-5 h-5 text-yellow-400" />
+                : <Moon className="w-5 h-5 text-gray-600" />
+              }
+            </button>
+
             {/* Notifications */}
             <Link to="/notifications" className="relative p-2 rounded-lg hover:bg-gray-100 transition">
               <Bell className="w-5 h-5 text-gray-600" />
@@ -104,24 +143,23 @@ export default function Layout({ children, title }) {
               )}
             </Link>
 
-            {/* Role switch button */}
+            {/* Role switch — desktop only */}
             {isGuide && (
               <button
                 onClick={handleRoleSwitch}
                 disabled={switching}
                 className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-green-500 text-green-600 hover:bg-green-50 transition-colors disabled:opacity-50"
               >
-                {switching ? (
-                  <div className="animate-spin w-3.5 h-3.5 border-2 border-green-500 border-t-transparent rounded-full" />
-                ) : (
-                  <ArrowRightLeft className="w-3.5 h-3.5" />
-                )}
+                {switching
+                  ? <div className="animate-spin w-3.5 h-3.5 border-2 border-green-500 border-t-transparent rounded-full" />
+                  : <ArrowRightLeft className="w-3.5 h-3.5" />
+                }
                 {isInGuideDashboard ? 'Traveller Mode' : 'Guide Mode'}
               </button>
             )}
 
-            {/* Avatar dropdown */}
-            <div className="relative">
+            {/* Avatar dropdown — desktop */}
+            <div className="relative hidden md:block">
               <button
                 onClick={() => setMenuOpen(!menuOpen)}
                 className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-100 transition"
@@ -139,7 +177,6 @@ export default function Layout({ children, title }) {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                   <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-50">
-                    {/* User info */}
                     <div className="px-4 py-2 border-b border-gray-100">
                       <p className="text-sm font-semibold text-gray-900 truncate">{user?.fullName}</p>
                       <p className="text-xs text-gray-500 truncate">{user?.email}</p>
@@ -188,46 +225,105 @@ export default function Layout({ children, title }) {
               )}
             </div>
 
-            {/* Mobile menu button */}
+            {/* Hamburger — mobile only */}
             <button
-              onClick={() => setMenuOpen(!menuOpen)}
+              onClick={() => setMobileOpen(!mobileOpen)}
               className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition"
+              aria-label="Toggle menu"
             >
-              {menuOpen ? <X className="w-5 h-5 text-gray-600" /> : <Menu className="w-5 h-5 text-gray-600" />}
+              {mobileOpen ? <X className="w-5 h-5 text-gray-600" /> : <Menu className="w-5 h-5 text-gray-600" />}
             </button>
           </div>
         </div>
-
-        {/* Mobile nav */}
-        {menuOpen && (
-          <div className="md:hidden bg-white border-t border-gray-100 px-4 py-3 flex flex-wrap gap-1">
-            {navItems.map(item => (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setMenuOpen(false)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  location.pathname === item.path ? 'bg-green-100 text-green-700' : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <item.icon className="w-4 h-4" />
-                {item.label}
-              </Link>
-            ))}
-            {isGuide && (
-              <button
-                onClick={() => { handleRoleSwitch(); setMenuOpen(false); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-green-600 border border-green-200"
-              >
-                <ArrowRightLeft className="w-4 h-4" />
-                {isInGuideDashboard ? 'Traveller' : 'Guide Mode'}
-              </button>
-            )}
-          </div>
-        )}
       </header>
 
-      {/* Main Content */}
+      {/* ── Mobile slide-down menu — renders BELOW header, never overlaps it ── */}
+      {mobileOpen && (
+        <>
+          {/* backdrop */}
+          <div
+            className="fixed inset-0 z-30 bg-black/20"
+            style={{ top: 56 }}
+            onClick={() => setMobileOpen(false)}
+          />
+          {/* sheet */}
+          <div
+            className="fixed left-0 right-0 z-40 bg-white border-b border-gray-200 shadow-lg"
+            style={{ top: 56 }}
+          >
+            {/* Nav links */}
+            <div className="px-4 py-3 flex flex-wrap gap-1 border-b border-gray-100">
+              {navItems.map(item => (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    location.pathname === item.path ? 'bg-green-100 text-green-700' : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <item.icon className="w-4 h-4" />
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+
+            {/* Account links */}
+            <div className="px-4 py-2">
+              <div className="flex items-center gap-3 py-2 border-b border-gray-100 mb-1">
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} className="w-8 h-8 rounded-full object-cover" alt="" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-sm font-bold">
+                    {user?.fullName?.[0]?.toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{user?.fullName}</p>
+                  <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                </div>
+              </div>
+
+              <Link to="/profile" onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 py-2.5 text-sm text-gray-700">
+                <User className="w-4 h-4 text-gray-400" /> My Profile
+              </Link>
+              <Link to="/friends" onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 py-2.5 text-sm text-gray-700">
+                <UserCheck className="w-4 h-4 text-gray-400" /> Friends
+              </Link>
+              <Link to="/settings" onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 py-2.5 text-sm text-gray-700">
+                <Settings className="w-4 h-4 text-gray-400" /> Settings
+              </Link>
+
+              {isGuide ? (
+                <button
+                  onClick={() => { handleRoleSwitch(); setMobileOpen(false); }}
+                  className="flex items-center gap-2 py-2.5 text-sm text-green-600 w-full"
+                >
+                  <ArrowRightLeft className="w-4 h-4" />
+                  {isInGuideDashboard ? 'Switch to Traveller' : 'Switch to Guide'}
+                </button>
+              ) : (
+                <Link to="/become-guide" onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-2 py-2.5 text-sm text-orange-600">
+                  <Plus className="w-4 h-4" /> Become a Guide
+                </Link>
+              )}
+
+              <button
+                onClick={() => { logout(); navigate('/login'); setMobileOpen(false); }}
+                className="flex items-center gap-2 py-2.5 text-sm text-red-600 w-full"
+              >
+                <LogOut className="w-4 h-4" /> Log Out
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Main content ─────────────────────────────────────────── */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
         {title && <h1 className="text-2xl font-bold text-gray-900 mb-6">{title}</h1>}
         {children}

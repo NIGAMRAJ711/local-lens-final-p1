@@ -77,4 +77,25 @@ router.post('/blacklist/:guideUserId', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+
+router.patch('/:id/respond', protect, async (req, res) => {
+  try {
+    const { response } = req.body;
+    if (!response?.trim()) return res.status(400).json({ error: 'Response text required' });
+    if (require('../db').USE_PG) {
+      const { query } = require('../db');
+      const rows = await query('SELECT * FROM reviews WHERE id=$1', [req.params.id]);
+      if (!rows[0]) return res.status(404).json({ error: 'Review not found' });
+      if (rows[0].reviewee_id !== req.user.id) return res.status(403).json({ error: 'Only the reviewed guide can respond' });
+      await query('UPDATE reviews SET guide_response=$1, responded_at=NOW() WHERE id=$2', [response.trim(), req.params.id]);
+      await notifications.create({ userId: rows[0].reviewer_id, title: 'Guide replied to your review', body: `${req.user.fullName} responded to your review`, type: 'REVIEW', data: { reviewId: req.params.id } });
+      return res.json({ message: 'Response saved' });
+    }
+    const { reviews: rv } = require('../db');
+    const review = await rv.findById ? await rv.findById(req.params.id) : null;
+    if (review) await rv.update?.(req.params.id, { guideResponse: response.trim() });
+    res.json({ message: 'Response saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

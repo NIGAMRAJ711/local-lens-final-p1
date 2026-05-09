@@ -8,7 +8,7 @@ import { Camera, Save, User, Mail, Phone, Calendar, Edit2, CheckCircle } from 'l
 import { format } from 'date-fns';
 
 export default function ProfilePage() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, refreshUser } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -48,8 +48,8 @@ export default function ProfilePage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const data = await userApi.updateMe(form);
-      updateUser(data.user);
+      await userApi.updateMe(form);
+      await refreshUser(); // always re-fetch from server so avatarUrl is fresh
       setEditing(false);
       toast.success('Profile updated successfully!');
     } catch (err) {

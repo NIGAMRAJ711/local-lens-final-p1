@@ -20,6 +20,9 @@ export default function ExplorePage() {
   const [appliedFilters, setAppliedFilters] = useState({ city: '', category: '', minPrice: '', maxPrice: '', rating: '', isAvailable: '' });
 
   const activeCount = Object.values(appliedFilters).filter(Boolean).length;
+  const [nearMe, setNearMe] = useState(false);
+  const [nearMeLoading, setNearMeLoading] = useState(false);
+  const [userCoords, setUserCoords] = useState(null);
 
   useEffect(() => { loadGuides(1, appliedFilters, search); }, []);
 
@@ -58,26 +61,73 @@ export default function ExplorePage() {
     setPendingFilters(empty);
     setAppliedFilters(empty);
     setSearch('');
+    setNearMe(false);
+    setUserCoords(null);
     loadGuides(1, empty, '');
     toast.info('Filters cleared');
   };
 
+  const handleNearMe = () => {
+    if (nearMe) { setNearMe(false); setUserCoords(null); loadGuides(1, appliedFilters, search); return; }
+    setNearMeLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setUserCoords(coords);
+        setNearMe(true);
+        setNearMeLoading(false);
+        setLoading(true);
+        const params = { lat: coords.lat, lng: coords.lng, radius: 50, limit: 12 };
+        Object.entries(appliedFilters).forEach(([k,v]) => { if(v) params[k]=v; });
+        import('../../lib/api').then(({ guideApi }) => {
+          guideApi.search(params).then(data => { setGuides(data.guides||[]); setPagination(data.pagination); }).finally(() => setLoading(false));
+        });
+        toast.success('Showing guides near you', 'Within 50km radius');
+      },
+      () => { setNearMeLoading(false); toast.error('Location access denied', 'Please allow location in browser settings'); }
+    );
+  };
+
   return (
     <Layout title="Explore Guides">
-      {/* Search bar */}
-      <form onSubmit={handleSearch} className="flex gap-2 mb-4">
+      {/* Search bar + filter pills */}
+      <form onSubmit={handleSearch} className="flex gap-2 mb-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             className="input-field pl-9"
-            placeholder="Search by city, name..."
+            placeholder="Search guides by city, name, tags..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
         </div>
-        <button type="submit" className="btn-primary px-5">
-          Search
+        <button type="submit" className="btn-primary px-5">Search</button>
+      </form>
+
+      {/* Quick filter pills */}
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
+        <button onClick={handleNearMe} disabled={nearMeLoading}
+          className={"flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition border " + (nearMe ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200 hover:border-green-400")}>
+          {nearMeLoading ? <div className="animate-spin w-3 h-3 border-2 border-current border-t-transparent rounded-full"/> : "📍"} Near Me
         </button>
+        <button onClick={() => { const r = appliedFilters.rating === '4' ? '' : '4'; setAppliedFilters(f=>({...f,rating:r})); loadGuides(1,{...appliedFilters,rating:r},search); }}
+          className={"flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition border " + (appliedFilters.rating==='4' ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200 hover:border-green-400")}>
+          ⭐ Top Rated
+        </button>
+        <button onClick={() => { const a = appliedFilters.isAvailable === 'true' ? '' : 'true'; setAppliedFilters(f=>({...f,isAvailable:a})); loadGuides(1,{...appliedFilters,isAvailable:a},search); }}
+          className={"flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition border " + (appliedFilters.isAvailable==='true' ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200 hover:border-green-400")}>
+          🟢 Available Now
+        </button>
+        <button onClick={() => setShowFilters(!showFilters)}
+          className={"flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition border " + (activeCount>0 ? "bg-green-600 text-white border-green-600" : "bg-white text-gray-600 border-gray-200 hover:border-green-400")}>
+          <Filter className="w-3.5 h-3.5"/> Filters {activeCount>0 && <span className="bg-white text-green-600 rounded-full w-4 h-4 flex items-center justify-center text-xs font-bold">{activeCount}</span>}
+        </button>
+        {(activeCount > 0 || nearMe) && (
+          <button onClick={handleClearFilters} className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-sm text-red-600 border border-red-200 hover:bg-red-50 transition">
+            <X className="w-3.5 h-3.5"/> Clear
+          </button>
+        )}
+      </form
         <button
           type="button"
           onClick={() => { setPendingFilters(appliedFilters); setShowFilters(!showFilters); }}
@@ -217,6 +267,11 @@ export default function ExplorePage() {
                   {g.isPhotographer && (
                     <div className="absolute top-2 right-2 bg-white/90 rounded-full p-1.5">
                       <Camera className="w-3.5 h-3.5 text-purple-600" />
+                    </div>
+                  )}
+                  {g.distance != null && (
+                    <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded-full">
+                      📍 {g.distance} km
                     </div>
                   )}
                 </div>

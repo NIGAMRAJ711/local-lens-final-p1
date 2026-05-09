@@ -135,7 +135,7 @@ export default function UserProfilePage() {
             </div>
             <div>
               <p className="font-bold text-gray-900 text-lg">{followersCount || 0}</p>
-              <p className="text-xs text-gray-500">Friends</p>
+              <p className="text-xs text-gray-500">Followers</p>
             </div>
             <div>
               <p className="font-bold text-gray-900 text-lg">{followingCount || 0}</p>

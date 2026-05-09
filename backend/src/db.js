@@ -54,6 +54,42 @@ async function initSchema() {
     ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS cover_image TEXT;
     ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS is_blacklisted BOOLEAN DEFAULT false;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blacklisted BOOLEAN DEFAULT false;
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS places_one_hour TEXT DEFAULT '';
+    ALTER TABLE group_tours ADD COLUMN IF NOT EXISTS whatsapp_link TEXT DEFAULT '';
+    ALTER TABLE group_tours ADD COLUMN IF NOT EXISTS photos TEXT[] DEFAULT '{}';
+    ALTER TABLE group_tours ADD COLUMN IF NOT EXISTS creator_id TEXT REFERENCES users(id);
+    ALTER TABLE group_tours ADD COLUMN IF NOT EXISTS creator_type TEXT DEFAULT 'TRAVELER';
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS places_half_day TEXT DEFAULT '';
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS places_full_day TEXT DEFAULT '';
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS provides_cab BOOLEAN DEFAULT false;
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS cab_price_per_km NUMERIC DEFAULT 0;
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS cab_full_day_price NUMERIC DEFAULT 0;
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS hotel_recommendations TEXT DEFAULT '';
+    ALTER TABLE guide_profiles ADD COLUMN IF NOT EXISTS restaurant_recommendations TEXT DEFAULT '';
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS number_of_people INT DEFAULT 1;
+    CREATE TABLE IF NOT EXISTS guide_availability(
+      id TEXT PRIMARY KEY,
+      guide_id TEXT REFERENCES guide_profiles(id) ON DELETE CASCADE,
+      date DATE NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT DEFAULT '',
+      is_booked BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS bucket_list(
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      city TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      is_completed BOOLEAN DEFAULT false,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS direct_messages(id TEXT PRIMARY KEY,sender_id TEXT REFERENCES users(id) ON DELETE CASCADE,receiver_id TEXT REFERENCES users(id) ON DELETE CASCADE,content TEXT NOT NULL,is_read BOOLEAN DEFAULT false,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE INDEX IF NOT EXISTS idx_dm_sender ON direct_messages(sender_id);
+    CREATE INDEX IF NOT EXISTS idx_dm_receiver ON direct_messages(receiver_id);
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hotel_preference TEXT DEFAULT '';
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS restaurant_preference TEXT DEFAULT '';
     CREATE TABLE IF NOT EXISTS traveler_profiles(id TEXT PRIMARY KEY,user_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,interests TEXT[] DEFAULT '{}',home_city TEXT,total_tours_booked INT DEFAULT 0,loyalty_points INT DEFAULT 0,wallet_balance NUMERIC DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES users(id),traveler_id TEXT REFERENCES users(id),booking_type TEXT DEFAULT 'PRIVATE',duration TEXT DEFAULT 'ONE_HOUR',status TEXT DEFAULT 'PENDING',date TEXT,start_time TEXT,meetup_location TEXT DEFAULT '',special_requests TEXT DEFAULT '',base_price NUMERIC DEFAULT 0,platform_fee NUMERIC DEFAULT 0,total_amount NUMERIC DEFAULT 0,payment_status TEXT DEFAULT 'PENDING',escrow_released BOOLEAN DEFAULT false,tour_completed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS group_tours(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id),title TEXT NOT NULL,description TEXT DEFAULT '',city TEXT DEFAULT '',date TEXT,start_time TEXT,duration TEXT DEFAULT '3 hours',max_members INT DEFAULT 6,price_per_person NUMERIC DEFAULT 0,meetup_point TEXT DEFAULT '',meetup_lat NUMERIC,meetup_lng NUMERIC,itinerary JSONB DEFAULT '[]',category TEXT[] DEFAULT '{}',cover_image TEXT,is_active BOOLEAN DEFAULT true,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
@@ -66,9 +102,6 @@ async function initSchema() {
     CREATE TABLE IF NOT EXISTS hidden_gems(id TEXT PRIMARY KEY,guide_id TEXT REFERENCES guide_profiles(id),name TEXT NOT NULL,description TEXT DEFAULT '',category TEXT DEFAULT '',city TEXT DEFAULT '',latitude NUMERIC DEFAULT 0,longitude NUMERIC DEFAULT 0,is_locked BOOLEAN DEFAULT true,photos TEXT[] DEFAULT '{}',created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS wallet_transactions(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),amount NUMERIC NOT NULL,type TEXT DEFAULT 'CREDIT',description TEXT DEFAULT '',booking_id TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE IF NOT EXISTS sos_alerts(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),latitude NUMERIC,longitude NUMERIC,booking_id TEXT,message TEXT DEFAULT 'SOS Alert',is_resolved BOOLEAN DEFAULT false,created_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS communities(id TEXT PRIMARY KEY,creator_id TEXT REFERENCES users(id),name TEXT NOT NULL,description TEXT DEFAULT '',cover_image TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE IF NOT EXISTS community_members(id TEXT PRIMARY KEY,community_id TEXT REFERENCES communities(id) ON DELETE CASCADE,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,role TEXT DEFAULT 'MEMBER',joined_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(community_id, user_id));
-    CREATE TABLE IF NOT EXISTS community_posts(id TEXT PRIMARY KEY,community_id TEXT REFERENCES communities(id) ON DELETE CASCADE,author_id TEXT REFERENCES users(id) ON DELETE CASCADE,content TEXT NOT NULL,media_url TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
   `;
   await query(sql);
   console.log('✅ PostgreSQL schema ready');
@@ -111,7 +144,7 @@ const users = {
 };
 
 // ── GUIDE PROFILES ──
-const _gp = (r,u) => r?{id:r.id,userId:r.user_id||r.userId,bio:r.bio,city:r.city||r.city,country:r.country,languages:r.languages||[],expertiseTags:r.expertise_tags||r.expertiseTags||[],isPhotographer:r.is_photographer||r.isPhotographer,isAvailable:r.is_available||r.isAvailable,hourlyRate:parseFloat(r.hourly_rate||r.hourlyRate)||0,halfDayRate:parseFloat(r.half_day_rate||r.halfDayRate)||0,fullDayRate:parseFloat(r.full_day_rate||r.fullDayRate)||0,photographyRate:r.photography_rate||r.photographyRate?parseFloat(r.photography_rate||r.photographyRate):null,totalBookings:r.total_bookings||r.totalBookings||0,totalEarnings:parseFloat(r.total_earnings||r.totalEarnings)||0,avgRating:parseFloat(r.avg_rating||r.avgRating)||0,totalReviews:r.total_reviews||r.totalReviews||0,latitude:r.latitude?parseFloat(r.latitude):null,longitude:r.longitude?parseFloat(r.longitude):null,walletBalance:parseFloat(r.wallet_balance||r.walletBalance)||0,verificationStatus:r.verification_status||r.verificationStatus,coverImage:r.cover_image||r.coverImage||null,isBlacklisted:r.is_blacklisted||r.isBlacklisted||false,createdAt:r.created_at||r.createdAt,user:u||null}:null;
+const _gp = (r,u,extra={}) => r?{id:r.id,userId:r.user_id||r.userId,bio:r.bio,city:r.city||r.city,country:r.country,languages:r.languages||[],expertiseTags:r.expertise_tags||r.expertiseTags||[],isPhotographer:r.is_photographer||r.isPhotographer,isAvailable:r.is_available||r.isAvailable,hourlyRate:parseFloat(r.hourly_rate||r.hourlyRate)||0,halfDayRate:parseFloat(r.half_day_rate||r.halfDayRate)||0,fullDayRate:parseFloat(r.full_day_rate||r.fullDayRate)||0,photographyRate:r.photography_rate||r.photographyRate?parseFloat(r.photography_rate||r.photographyRate):null,totalBookings:r.total_bookings||r.totalBookings||0,totalEarnings:parseFloat(r.total_earnings||r.totalEarnings)||0,avgRating:parseFloat(r.avg_rating||r.avgRating)||0,totalReviews:r.total_reviews||r.totalReviews||0,latitude:r.latitude?parseFloat(r.latitude):null,longitude:r.longitude?parseFloat(r.longitude):null,walletBalance:parseFloat(r.wallet_balance||r.walletBalance)||0,verificationStatus:r.verification_status||r.verificationStatus,coverImage:r.cover_image||r.coverImage||null,isBlacklisted:r.is_blacklisted||r.isBlacklisted||false,distance:extra.distance||null,placesOneHour:r.places_one_hour||r.placesOneHour||'',placesHalfDay:r.places_half_day||r.placesHalfDay||'',placesFullDay:r.places_full_day||r.placesFullDay||'',providesCab:!!(r.provides_cab||r.providesCab),cabPricePerKm:parseFloat(r.cab_price_per_km||r.cabPricePerKm)||0,cabFullDayPrice:parseFloat(r.cab_full_day_price||r.cabFullDayPrice)||0,hotelRecommendations:r.hotel_recommendations||r.hotelRecommendations||'',restaurantRecommendations:r.restaurant_recommendations||r.restaurantRecommendations||'',createdAt:r.created_at||r.createdAt,user:u||null}:null;
 const guideProfiles = {
   async _eu(g) {
     if(!g)return null;
@@ -119,22 +152,31 @@ const guideProfiles = {
     return {...g,user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl,email:u.email,createdAt:u.createdAt}:null};
   },
   async findMany(q={}) {
-    const {city,minPrice,maxPrice,rating,isAvailable,page=1,limit=12}=q;
+    const {city,search,minPrice,maxPrice,rating,isAvailable,lat,lng,radius=50,page=1,limit=12}=q;
     if(USE_PG){
-      let sql=`SELECT g.*,u.full_name,u.avatar_url,u.email,u.created_at as uc FROM guide_profiles g JOIN users u ON u.id=g.user_id WHERE 1=1`;
+      let sql=`SELECT g.*,u.full_name,u.avatar_url,u.email,u.created_at as uc`;
       const p=[]; let i=1;
-      if(city){sql+=` AND LOWER(g.city) LIKE LOWER($${i++})`;p.push(`%${city}%`);}
+      if(lat&&lng){
+        sql+=`,ROUND((6371*acos(LEAST(1,cos(radians($${i++}))*cos(radians(g.latitude))*cos(radians(g.longitude)-radians($${i++}))+sin(radians($${i++}))*sin(radians(g.latitude)))))::numeric,1) as distance`;
+        p.push(parseFloat(lat),parseFloat(lng),parseFloat(lat));
+      }
+      sql+=` FROM guide_profiles g JOIN users u ON u.id=g.user_id WHERE 1=1`;
+      if(search){sql+=` AND (LOWER(g.city) LIKE LOWER($${i++}) OR LOWER(u.full_name) LIKE LOWER($${i++}) OR g.expertise_tags::text ILIKE $${i++} OR LOWER(g.bio) LIKE LOWER($${i++}))`;const t=`%${search}%`;p.push(t,t,t,t);}
+      else if(city){sql+=` AND LOWER(g.city) LIKE LOWER($${i++})`;p.push(`%${city}%`);}
       if(minPrice){sql+=` AND g.hourly_rate>=$${i++}`;p.push(parseFloat(minPrice));}
       if(maxPrice){sql+=` AND g.hourly_rate<=$${i++}`;p.push(parseFloat(maxPrice));}
       if(rating){sql+=` AND g.avg_rating>=$${i++}`;p.push(parseFloat(rating));}
       if(isAvailable==='true')sql+=` AND g.is_available=true`;
-      sql+=` ORDER BY g.avg_rating DESC,g.total_bookings DESC LIMIT $${i++} OFFSET $${i++}`;
+      if(lat&&lng){sql+=` AND g.latitude IS NOT NULL AND g.longitude IS NOT NULL AND (6371*acos(LEAST(1,cos(radians($${i++}))*cos(radians(g.latitude))*cos(radians(g.longitude)-radians($${i++}))+sin(radians($${i++}))*sin(radians(g.latitude)))))<$${i++}`;p.push(parseFloat(lat),parseFloat(lng),parseFloat(lat),parseFloat(radius));}
+      sql+= lat&&lng ? ` ORDER BY distance ASC` : ` ORDER BY g.avg_rating DESC,g.total_bookings DESC`;
+      sql+=` LIMIT $${i++} OFFSET $${i++}`;
       p.push(parseInt(limit),(parseInt(page)-1)*parseInt(limit));
       const rows=await query(sql,p);
-      return rows.map(r=>_gp(r,{id:r.user_id,fullName:r.full_name,avatarUrl:r.avatar_url,email:r.email,createdAt:r.uc}));
+      return rows.map(r=>_gp(r,{id:r.user_id,fullName:r.full_name,avatarUrl:r.avatar_url,email:r.email,createdAt:r.uc},{distance:r.distance||null}));
     }
     let s=loadStore('guide_profiles');
-    if(city)s=s.filter(g=>g.city?.toLowerCase().includes(city.toLowerCase()));
+    if(search)s=s.filter(g=>g.city?.toLowerCase().includes(search.toLowerCase())||g.bio?.toLowerCase().includes(search.toLowerCase())||(g.expertiseTags||[]).join(' ').toLowerCase().includes(search.toLowerCase()));
+    else if(city)s=s.filter(g=>g.city?.toLowerCase().includes(city.toLowerCase()));
     if(minPrice)s=s.filter(g=>g.hourlyRate>=parseFloat(minPrice));
     if(maxPrice)s=s.filter(g=>g.hourlyRate<=parseFloat(maxPrice));
     if(rating)s=s.filter(g=>g.avgRating>=parseFloat(rating));
@@ -160,17 +202,17 @@ const guideProfiles = {
   async create(data) {
     if(USE_PG){
       const id=uuid();
-      await query(`INSERT INTO guide_profiles(id,user_id,bio,city,country,languages,expertise_tags,is_photographer,hourly_rate,half_day_rate,full_day_rate,photography_rate) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[id,data.userId,data.bio||'',data.city||'',data.country||'India',data.languages||[],data.expertiseTags||[],!!data.isPhotographer,parseFloat(data.hourlyRate)||500,parseFloat(data.halfDayRate)||2000,parseFloat(data.fullDayRate)||3500,data.photographyRate?parseFloat(data.photographyRate):null]);
+      await query(`INSERT INTO guide_profiles(id,user_id,bio,city,country,languages,expertise_tags,is_photographer,hourly_rate,half_day_rate,full_day_rate,photography_rate,places_one_hour,places_half_day,places_full_day,provides_cab,cab_price_per_km,cab_full_day_price,hotel_recommendations,restaurant_recommendations) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,[id,data.userId,data.bio||'',data.city||'',data.country||'India',data.languages||[],data.expertiseTags||[],!!data.isPhotographer,parseFloat(data.hourlyRate)||500,parseFloat(data.halfDayRate)||2000,parseFloat(data.fullDayRate)||3500,data.photographyRate?parseFloat(data.photographyRate):null,data.placesOneHour||'',data.placesHalfDay||'',data.placesFullDay||'',!!data.providesCab,parseFloat(data.cabPricePerKm)||0,parseFloat(data.cabFullDayPrice)||0,data.hotelRecommendations||'',data.restaurantRecommendations||'']);
       return this.findById(id);
     }
     const s=loadStore('guide_profiles');
     if(s.find(g=>g.userId===data.userId))throw new Error('Guide profile already exists');
-    const g={id:uuid(),userId:data.userId,bio:data.bio||'',city:data.city||'',country:data.country||'India',languages:data.languages||[],expertiseTags:data.expertiseTags||[],isPhotographer:!!data.isPhotographer,isAvailable:false,hourlyRate:parseFloat(data.hourlyRate)||500,halfDayRate:parseFloat(data.halfDayRate)||2000,fullDayRate:parseFloat(data.fullDayRate)||3500,photographyRate:data.photographyRate?parseFloat(data.photographyRate):null,totalBookings:0,totalEarnings:0,avgRating:0,totalReviews:0,latitude:null,longitude:null,walletBalance:0,verificationStatus:'UNVERIFIED',createdAt:now(),updatedAt:now()};
+    const g={id:uuid(),userId:data.userId,bio:data.bio||'',city:data.city||'',country:data.country||'India',languages:data.languages||[],expertiseTags:data.expertiseTags||[],isPhotographer:!!data.isPhotographer,isAvailable:false,hourlyRate:parseFloat(data.hourlyRate)||500,halfDayRate:parseFloat(data.halfDayRate)||2000,fullDayRate:parseFloat(data.fullDayRate)||3500,photographyRate:data.photographyRate?parseFloat(data.photographyRate):null,totalBookings:0,totalEarnings:0,avgRating:0,totalReviews:0,latitude:null,longitude:null,walletBalance:0,verificationStatus:'UNVERIFIED',placesOneHour:data.placesOneHour||'',placesHalfDay:data.placesHalfDay||'',placesFullDay:data.placesFullDay||'',providesCab:!!data.providesCab,cabPricePerKm:parseFloat(data.cabPricePerKm)||0,cabFullDayPrice:parseFloat(data.cabFullDayPrice)||0,hotelRecommendations:data.hotelRecommendations||'',restaurantRecommendations:data.restaurantRecommendations||'',createdAt:now(),updatedAt:now()};
     s.push(g); saveStore('guide_profiles',s); return this._eu(g);
   },
   async update(id,upd) {
     if(USE_PG){
-      const map={bio:'bio',city:'city',country:'country',languages:'languages',expertiseTags:'expertise_tags',isPhotographer:'is_photographer',isAvailable:'is_available',hourlyRate:'hourly_rate',halfDayRate:'half_day_rate',fullDayRate:'full_day_rate',photographyRate:'photography_rate',totalBookings:'total_bookings',totalEarnings:'total_earnings',avgRating:'avg_rating',totalReviews:'total_reviews',latitude:'latitude',longitude:'longitude',walletBalance:'wallet_balance',coverImage:'cover_image',isBlacklisted:'is_blacklisted'};
+      const map={bio:'bio',city:'city',country:'country',languages:'languages',expertiseTags:'expertise_tags',isPhotographer:'is_photographer',isAvailable:'is_available',hourlyRate:'hourly_rate',halfDayRate:'half_day_rate',fullDayRate:'full_day_rate',photographyRate:'photography_rate',totalBookings:'total_bookings',totalEarnings:'total_earnings',avgRating:'avg_rating',totalReviews:'total_reviews',latitude:'latitude',longitude:'longitude',walletBalance:'wallet_balance',coverImage:'cover_image',isBlacklisted:'is_blacklisted',placesOneHour:'places_one_hour',placesHalfDay:'places_half_day',placesFullDay:'places_full_day',providesCab:'provides_cab',cabPricePerKm:'cab_price_per_km',cabFullDayPrice:'cab_full_day_price',hotelRecommendations:'hotel_recommendations',restaurantRecommendations:'restaurant_recommendations'};
       const f=[],v=[]; let i=1;
       for(const[k,val]of Object.entries(upd)){const c=map[k];if(!c)continue;f.push(`${c}=$${i++}`);v.push(val);}
       if(!f.length)return this.findById(id);
@@ -223,7 +265,7 @@ const travelerProfiles = {
 const _eb = async (b) => {
   if(!b)return null;
   const [g,t]=await Promise.all([users.findById(b.guideId||b.guide_id),users.findById(b.travelerId||b.traveler_id)]);
-  return {...b,guideId:b.guideId||b.guide_id,travelerId:b.travelerId||b.traveler_id,bookingType:b.bookingType||b.booking_type,startTime:b.startTime||b.start_time,meetupLocation:b.meetupLocation||b.meetup_location,specialRequests:b.specialRequests||b.special_requests,basePrice:parseFloat(b.basePrice||b.base_price)||0,platformFee:parseFloat(b.platformFee||b.platform_fee)||0,totalAmount:parseFloat(b.totalAmount||b.total_amount)||0,paymentStatus:b.paymentStatus||b.payment_status,escrowReleased:b.escrowReleased||b.escrow_released,createdAt:b.createdAt||b.created_at,updatedAt:b.updatedAt||b.updated_at,guide:g?{id:g.id,fullName:g.fullName,avatarUrl:g.avatarUrl}:null,traveler:t?{id:t.id,fullName:t.fullName,avatarUrl:t.avatarUrl}:null};
+  return {...b,guideId:b.guideId||b.guide_id,travelerId:b.travelerId||b.traveler_id,bookingType:b.bookingType||b.booking_type,startTime:b.startTime||b.start_time,meetupLocation:b.meetupLocation||b.meetup_location,specialRequests:b.specialRequests||b.special_requests,basePrice:parseFloat(b.basePrice||b.base_price)||0,platformFee:parseFloat(b.platformFee||b.platform_fee)||0,totalAmount:parseFloat(b.totalAmount||b.total_amount)||0,paymentStatus:b.paymentStatus||b.payment_status,escrowReleased:b.escrowReleased||b.escrow_released,numberOfPeople:parseInt(b.numberOfPeople||b.number_of_people)||1,hotelPreference:b.hotelPreference||b.hotel_preference||'',restaurantPreference:b.restaurantPreference||b.restaurant_preference||'',createdAt:b.createdAt||b.created_at,updatedAt:b.updatedAt||b.updated_at,guide:g?{id:g.id,fullName:g.fullName,avatarUrl:g.avatarUrl}:null,traveler:t?{id:t.id,fullName:t.fullName,avatarUrl:t.avatarUrl}:null};
 };
 const bookings = {
   async findById(id) {
@@ -248,7 +290,7 @@ const bookings = {
   },
   async create(data) {
     const id=uuid();
-    if(USE_PG){await query('INSERT INTO bookings(id,guide_id,traveler_id,booking_type,duration,date,start_time,meetup_location,special_requests,base_price,platform_fee,total_amount) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[id,data.guideId,data.travelerId,data.bookingType||'PRIVATE',data.duration||'ONE_HOUR',data.date,data.startTime,data.meetupLocation||'',data.specialRequests||'',data.basePrice||0,data.platformFee||0,data.totalAmount||0]);return this.findById(id);}
+    if(USE_PG){await query('INSERT INTO bookings(id,guide_id,traveler_id,booking_type,duration,date,start_time,meetup_location,special_requests,base_price,platform_fee,total_amount,number_of_people,hotel_preference,restaurant_preference) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',[id,data.guideId,data.travelerId,data.bookingType||'PRIVATE',data.duration||'ONE_HOUR',data.date,data.startTime,data.meetupLocation||'',data.specialRequests||'',data.basePrice||0,data.platformFee||0,data.totalAmount||0,data.numberOfPeople||1,data.hotelPreference||'',data.restaurantPreference||'']);return this.findById(id);}
     const s=loadStore('bookings'); const b={id,...data,status:'PENDING',paymentStatus:'PENDING',escrowReleased:false,createdAt:now(),updatedAt:now()}; s.push(b); saveStore('bookings',s); return _eb(b);
   },
   async updateStatus(id,status) {
@@ -274,16 +316,15 @@ const _enrichTour = async(t) => {
   const guide=await guideProfiles.findById(t.guideId||t.guide_id);
   const mems=USE_PG?await query(`SELECT gtm.*,u.full_name,u.avatar_url FROM group_tour_members gtm JOIN users u ON u.id=gtm.user_id WHERE gtm.group_tour_id=$1`,[t.id]):loadStore('group_tour_members').filter(m=>m.groupTourId===t.id);
   const members=USE_PG?mems.map(m=>({id:m.id,userId:m.user_id,user:{id:m.user_id,fullName:m.full_name,avatarUrl:m.avatar_url}})):await Promise.all(mems.map(async m=>{const u=await users.findById(m.userId);return{...m,user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
-  const base={...t,guideId:t.guideId||t.guide_id,startTime:t.startTime||t.start_time,maxMembers:t.maxMembers||t.max_members,pricePerPerson:parseFloat(t.pricePerPerson||t.price_per_person)||0,meetupPoint:t.meetupPoint||t.meetup_point,meetupLat:t.meetupLat||t.meetup_lat,meetupLng:t.meetupLng||t.meetup_lng,coverImage:t.coverImage||t.cover_image,isActive:t.isActive!==undefined?t.isActive:t.is_active,createdAt:t.createdAt||t.created_at};
+  const base={...t,guideId:t.guideId||t.guide_id,startTime:t.startTime||t.start_time,maxMembers:t.maxMembers||t.max_members,pricePerPerson:parseFloat(t.pricePerPerson||t.price_per_person)||0,meetupPoint:t.meetupPoint||t.meetup_point,meetupLat:t.meetupLat||t.meetup_lat,meetupLng:t.meetupLng||t.meetup_lng,coverImage:t.coverImage||t.cover_image,isActive:t.isActive!==undefined?t.isActive:t.is_active,createdAt:t.createdAt||t.created_at,whatsappLink:t.whatsapp_link||t.whatsappLink||'',photos:t.photos||[],creatorId:t.creator_id||t.creatorId||null,creatorType:t.creator_type||t.creatorType||'TRAVELER'};
   return{...base,guide,members,_count:{members:members.length}};
 };
 const groupTours = {
   async findMany(q={}) {
-    const {city,category,minPrice,maxPrice}=q;
+    const {city,minPrice,maxPrice}=q;
     if(USE_PG){
       let sql=`SELECT * FROM group_tours WHERE is_active=true`; const p=[]; let i=1;
       if(city){sql+=` AND LOWER(city) LIKE LOWER($${i++})`;p.push(`%${city}%`);}
-      if(category){sql+=` AND $${i++}=ANY(category)`;p.push(category);}
       if(minPrice){sql+=` AND price_per_person>=$${i++}`;p.push(parseFloat(minPrice));}
       if(maxPrice){sql+=` AND price_per_person<=$${i++}`;p.push(parseFloat(maxPrice));}
       sql+=' ORDER BY date ASC';
@@ -291,7 +332,6 @@ const groupTours = {
     }
     let s=loadStore('group_tours').filter(t=>t.isActive!==false);
     if(city)s=s.filter(t=>t.city?.toLowerCase().includes(city.toLowerCase()));
-    if(category)s=s.filter(t=>(t.category||[]).includes(category));
     if(minPrice)s=s.filter(t=>t.pricePerPerson>=parseFloat(minPrice));
     if(maxPrice)s=s.filter(t=>t.pricePerPerson<=parseFloat(maxPrice));
     return Promise.all(s.sort((a,b)=>new Date(a.date)-new Date(b.date)).map(_enrichTour));
@@ -302,7 +342,7 @@ const groupTours = {
   },
   async create(data) {
     const id=uuid();
-    if(USE_PG){await query(`INSERT INTO group_tours(id,guide_id,title,description,city,date,start_time,duration,max_members,price_per_person,meetup_point,meetup_lat,meetup_lng,itinerary,category,cover_image) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,[id,data.guideId,data.title,data.description||'',data.city||'',data.date,data.startTime,data.duration||'3 hours',parseInt(data.maxMembers)||6,parseFloat(data.pricePerPerson)||0,data.meetupPoint||'',data.meetupLat||null,data.meetupLng||null,JSON.stringify(data.itinerary||[]),data.category||[],data.coverImage||null]);return this.findById(id);}
+    if(USE_PG){await query(`INSERT INTO group_tours(id,guide_id,title,description,city,date,start_time,duration,max_members,price_per_person,meetup_point,meetup_lat,meetup_lng,itinerary,category,cover_image,whatsapp_link,photos,creator_id,creator_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,[id,data.guideId||null,data.title,data.description||'',data.city||'',data.date,data.startTime,data.duration||'3 hours',parseInt(data.maxMembers)||6,parseFloat(data.pricePerPerson)||0,data.meetupPoint||'',data.meetupLat||null,data.meetupLng||null,JSON.stringify(data.itinerary||[]),data.category||[],data.coverImage||null,data.whatsappLink||'',data.photos||[],data.creatorId||null,data.creatorType||'TRAVELER']);return this.findById(id);}
     const s=loadStore('group_tours'); const t={id,...data,isActive:true,createdAt:now(),updatedAt:now()}; s.push(t); saveStore('group_tours',s); return _enrichTour(t);
   },
 };
@@ -419,8 +459,8 @@ const hiddenGems = {
   },
   async create(data) {
     const id=uuid();
-    if(USE_PG){await query('INSERT INTO hidden_gems(id,guide_id,name,description,category,city,latitude,longitude) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,data.guideId,data.name,data.description||'',data.category||'',data.city||'',parseFloat(data.latitude)||0,parseFloat(data.longitude)||0]);return(await query('SELECT * FROM hidden_gems WHERE id=$1',[id]))[0];}
-    const s=loadStore('hidden_gems'); const g={id,guideId:data.guideId,name:data.name,description:data.description||'',category:data.category||'',city:data.city||'',latitude:parseFloat(data.latitude)||0,longitude:parseFloat(data.longitude)||0,isLocked:true,photos:[],createdAt:now()}; s.push(g); saveStore('hidden_gems',s); return g;
+    if(USE_PG){await query('INSERT INTO hidden_gems(id,guide_id,name,description,category,city,latitude,longitude,is_locked,photos) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,data.guideId,data.name,data.description||'',data.category||'',data.city||'',parseFloat(data.latitude)||0,parseFloat(data.longitude)||0,data.isLocked!==false,data.photos||[]]);return(await query('SELECT * FROM hidden_gems WHERE id=$1',[id]))[0];}
+    const s=loadStore('hidden_gems'); const g={id,guideId:data.guideId,name:data.name,description:data.description||'',category:data.category||'',city:data.city||'',latitude:parseFloat(data.latitude)||0,longitude:parseFloat(data.longitude)||0,isLocked:data.isLocked!==false,photos:data.photos||[],createdAt:now()}; s.push(g); saveStore('hidden_gems',s); return g;
   },
 };
 
@@ -444,89 +484,6 @@ const sosAlerts = {
     if(USE_PG){await query('INSERT INTO sos_alerts(id,user_id,latitude,longitude,booking_id,message) VALUES($1,$2,$3,$4,$5,$6)',[id,data.userId,data.latitude,data.longitude,data.bookingId||null,data.message||'SOS Alert']);return{id,...data,isResolved:false,createdAt:now()};}
     const s=loadStore('sos_alerts'); const a={id,...data,isResolved:false,createdAt:now()}; s.push(a); saveStore('sos_alerts',s); return a;
   },
-};
-
-// ── COMMUNITIES ──
-const _enrichCommunity = async(c) => {
-  if(!c)return null;
-  const mems = USE_PG ? await query(`SELECT * FROM community_members WHERE community_id=$1`,[c.id]) : loadStore('community_members').filter(m=>m.communityId===c.id);
-  const posts = USE_PG ? await query(`SELECT * FROM community_posts WHERE community_id=$1`,[c.id]) : loadStore('community_posts').filter(p=>p.communityId===c.id);
-  const creator = await users.findById(c.creatorId||c.creator_id);
-  const base = {...c, creatorId: c.creatorId||c.creator_id, coverImage: c.coverImage||c.cover_image, createdAt: c.createdAt||c.created_at};
-  return {...base, creator: creator ? {id:creator.id, fullName:creator.fullName, avatarUrl:creator.avatarUrl} : null, _count: { members: mems.length, posts: posts.length }};
-};
-const communities = {
-  async findMany(filters={}) {
-    if(USE_PG) {
-      const rs=await query(`SELECT * FROM communities ORDER BY created_at DESC`);
-      return Promise.all(rs.map(_enrichCommunity));
-    }
-    return Promise.all(loadStore('communities').sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(_enrichCommunity));
-  },
-  async findById(id) {
-    if(USE_PG){const r=(await query(`SELECT * FROM communities WHERE id=$1`,[id]))[0]; return _enrichCommunity(r);}
-    return _enrichCommunity(loadStore('communities').find(c=>c.id===id)||null);
-  },
-  async create(data) {
-    const id=uuid();
-    if(USE_PG){
-      await query(`INSERT INTO communities(id,creator_id,name,description,cover_image) VALUES($1,$2,$3,$4,$5)`,[id,data.creatorId,data.name,data.description||'',data.coverImage||null]);
-    } else {
-      const s=loadStore('communities');
-      s.push({id,creatorId:data.creatorId,name:data.name,description:data.description||'',coverImage:data.coverImage||null,createdAt:now(),updatedAt:now()});
-      saveStore('communities',s);
-    }
-    await communityMembers.join(id, data.creatorId, 'ADMIN');
-    return this.findById(id);
-  }
-};
-
-const communityMembers = {
-  async findByCommunity(cid) {
-    if(USE_PG){
-      const rs=await query(`SELECT cm.*, u.full_name, u.avatar_url FROM community_members cm JOIN users u ON u.id=cm.user_id WHERE cm.community_id=$1`,[cid]);
-      return rs.map(r=>({id:r.id, communityId:r.community_id, userId:r.user_id, role:r.role, joinedAt:r.joined_at, user:{id:r.user_id, fullName:r.full_name, avatarUrl:r.avatar_url}}));
-    }
-    const mems = loadStore('community_members').filter(m=>m.communityId===cid);
-    return Promise.all(mems.map(async m=>{const u=await users.findById(m.userId); return {...m, user:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
-  },
-  async join(cid, uid, role='MEMBER') {
-    if(USE_PG){
-      const ex=(await query(`SELECT * FROM community_members WHERE community_id=$1 AND user_id=$2`,[cid,uid]))[0];
-      if(ex)return ex;
-      return (await query(`INSERT INTO community_members(id,community_id,user_id,role) VALUES($1,$2,$3,$4) RETURNING *`,[uuid(),cid,uid,role]))[0];
-    }
-    const s=loadStore('community_members');
-    let m=s.find(x=>x.communityId===cid && x.userId===uid);
-    if(!m){ m={id:uuid(),communityId:cid,userId:uid,role,joinedAt:now()}; s.push(m); saveStore('community_members',s); }
-    return m;
-  },
-  async leave(cid, uid) {
-    if(USE_PG) return query(`DELETE FROM community_members WHERE community_id=$1 AND user_id=$2`,[cid,uid]);
-    const s=loadStore('community_members'); saveStore('community_members', s.filter(m=>!(m.communityId===cid&&m.userId===uid)));
-  }
-};
-
-const communityPosts = {
-  async findByCommunity(cid) {
-    if(USE_PG){
-      const rs=await query(`SELECT p.*, u.full_name, u.avatar_url FROM community_posts p JOIN users u ON u.id=p.author_id WHERE p.community_id=$1 ORDER BY p.created_at DESC`,[cid]);
-      return rs.map(r=>({id:r.id, communityId:r.community_id, authorId:r.author_id, content:r.content, mediaUrl:r.media_url, createdAt:r.created_at, author:{id:r.author_id, fullName:r.full_name, avatarUrl:r.avatar_url}}));
-    }
-    const posts = loadStore('community_posts').filter(p=>p.communityId===cid).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-    return Promise.all(posts.map(async p=>{const u=await users.findById(p.authorId); return {...p, author:u?{id:u.id,fullName:u.fullName,avatarUrl:u.avatarUrl}:null};}));
-  },
-  async create(data) {
-    const id=uuid();
-    if(USE_PG){
-      await query(`INSERT INTO community_posts(id,community_id,author_id,content,media_url) VALUES($1,$2,$3,$4,$5)`,[id,data.communityId,data.authorId,data.content,data.mediaUrl||null]);
-    } else {
-      const s=loadStore('community_posts');
-      s.push({id,communityId:data.communityId,authorId:data.authorId,content:data.content,mediaUrl:data.mediaUrl||null,createdAt:now()});
-      saveStore('community_posts',s);
-    }
-    return id;
-  }
 };
 
 module.exports = { users, guideProfiles, travelerProfiles, bookings, groupTours, groupTourMembers, reels, messages, reviews, notifications, hiddenGems, walletTransactions, sosAlerts, initSchema, USE_PG, follows: null }; // follows added below
@@ -606,3 +563,60 @@ const follows = {
 };
 
 module.exports.follows = follows;
+
+const directMessages = {
+  async getConversation(userA, userB) {
+    if(USE_PG){
+      return query(`SELECT dm.*,u.full_name as sender_name,u.avatar_url as sender_avatar FROM direct_messages dm JOIN users u ON u.id=dm.sender_id WHERE (dm.sender_id=$1 AND dm.receiver_id=$2) OR (dm.sender_id=$2 AND dm.receiver_id=$1) ORDER BY dm.created_at ASC`,[userA,userB]);
+    }
+    const store=loadStore('direct_messages');
+    return store.filter(m=>(m.senderId===userA&&m.receiverId===userB)||(m.senderId===userB&&m.receiverId===userA)).sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  },
+  async getInbox(userId) {
+    if(USE_PG){
+      const rows = await query(`
+        SELECT DISTINCT ON (contact_id)
+          contact_id,
+          u.full_name as contact_name,
+          u.avatar_url as contact_avatar,
+          u.role as contact_role,
+          dm.content as last_message,
+          dm.created_at as last_message_time,
+          dm.sender_id,
+          (SELECT COUNT(*) FROM direct_messages WHERE sender_id=contact_id AND receiver_id=$1 AND is_read=false) as unread_count
+        FROM (
+          SELECT CASE WHEN sender_id=$1 THEN receiver_id ELSE sender_id END as contact_id, id, content, created_at, sender_id
+          FROM direct_messages WHERE sender_id=$1 OR receiver_id=$1
+        ) dm
+        JOIN users u ON u.id=dm.contact_id
+        ORDER BY contact_id, dm.created_at DESC
+      `,[userId]);
+      return rows.map(r=>({contactId:r.contact_id,contactName:r.contact_name,contactAvatar:r.contact_avatar,contactRole:r.contact_role,lastMessage:r.last_message,lastMessageTime:r.last_message_time,unreadCount:parseInt(r.unread_count)||0}));
+    }
+    const store=loadStore('direct_messages');
+    const contacts=new Map();
+    store.filter(m=>m.senderId===userId||m.receiverId===userId).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).forEach(m=>{
+      const contactId=m.senderId===userId?m.receiverId:m.senderId;
+      if(!contacts.has(contactId))contacts.set(contactId,{contactId,lastMessage:m.content,lastMessageTime:m.createdAt,unreadCount:0});
+    });
+    return Promise.all([...contacts.values()].map(async c=>{const u=await users.findById(c.contactId);return{...c,contactName:u?.fullName||'',contactAvatar:u?.avatarUrl||'',contactRole:u?.role||'TRAVELER'};}));
+  },
+  async send(senderId, receiverId, content) {
+    const id=uuid();
+    if(USE_PG){await query('INSERT INTO direct_messages(id,sender_id,receiver_id,content) VALUES($1,$2,$3,$4)',[id,senderId,receiverId,content]);return(await query('SELECT * FROM direct_messages WHERE id=$1',[id]))[0];}
+    const msg={id,senderId,receiverId,content,isRead:false,readAt:null,createdAt:now()};
+    const s=loadStore('direct_messages');s.push(msg);saveStore('direct_messages',s);return msg;
+  },
+  async markRead(senderId, receiverId) {
+    if(USE_PG){await query('UPDATE direct_messages SET is_read=true,read_at=NOW() WHERE sender_id=$1 AND receiver_id=$2 AND is_read=false',[senderId,receiverId]);return;}
+    const s=loadStore('direct_messages');
+    s.forEach(m=>{if(m.senderId===senderId&&m.receiverId===receiverId&&!m.isRead){m.isRead=true;m.readAt=now();}});
+    saveStore('direct_messages',s);
+  },
+  async getUnreadCount(userId) {
+    if(USE_PG){const r=await query('SELECT COUNT(*) as cnt FROM direct_messages WHERE receiver_id=$1 AND is_read=false',[userId]);return parseInt(r[0]?.cnt)||0;}
+    return loadStore('direct_messages').filter(m=>m.receiverId===userId&&!m.isRead).length;
+  },
+};
+
+module.exports.directMessages = directMessages;

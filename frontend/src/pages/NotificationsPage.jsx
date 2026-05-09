@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Layout from '../components/shared/Layout';
-import { notificationApi } from '../lib/api';
+import { notificationApi, friendsApi } from '../lib/api';
 import { api } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 import { Bell, CheckCheck, UserPlus, CheckCircle, X } from 'lucide-react';
@@ -21,6 +21,7 @@ const TYPE_ICONS = {
   SOS: '🚨',
   GENERAL: '🔔',
   FOLLOW_REQUEST: '👋',
+  FRIEND_REQUEST: '👤',
   GROUP_TOUR_JOIN: '👥',
 };
 
@@ -53,10 +54,10 @@ export default function NotificationsPage() {
     if (!followId) return;
     setActionLoading(l => ({ ...l, [notif.id]: 'accepting' }));
     try {
-      await api.post(`/friends/accept/${followId}`);
+      await friendsApi.acceptRequest(followId);
       markRead(notif.id);
       setNotifications(ns => ns.map(n => n.id === notif.id ? { ...n, isRead: true, actionDone: 'accepted' } : n));
-      toast.success('Follow request accepted! 🎉');
+      toast.success('Friend request accepted! 🎉');
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -69,10 +70,10 @@ export default function NotificationsPage() {
     if (!followId) return;
     setActionLoading(l => ({ ...l, [notif.id]: 'declining' }));
     try {
-      await api.delete(`/friends/unfollow/${notif.data?.fromUserId}`).catch(() => {});
+      await friendsApi.declineRequest(followId);
       markRead(notif.id);
       setNotifications(ns => ns.map(n => n.id === notif.id ? { ...n, isRead: true, actionDone: 'declined' } : n));
-      toast.info('Follow request declined');
+      toast.info('Friend request declined');
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -137,7 +138,7 @@ export default function NotificationsPage() {
                     <p className="text-sm text-gray-600 mt-0.5">{n.body}</p>
 
                     {/* Follow request actions */}
-                    {n.type === 'FOLLOW_REQUEST' && !n.actionDone && (
+                    {(n.type === 'FOLLOW_REQUEST' || n.type === 'FRIEND_REQUEST') && !n.actionDone && (
                       <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => handleAcceptFollow(n)}
@@ -159,9 +160,9 @@ export default function NotificationsPage() {
                       </div>
                     )}
 
-                    {n.type === 'FOLLOW_REQUEST' && n.actionDone && (
+                    {(n.type === 'FOLLOW_REQUEST' || n.type === 'FRIEND_REQUEST') && n.actionDone && (
                       <p className={`text-xs mt-2 font-medium ${n.actionDone === 'accepted' ? 'text-green-600' : 'text-gray-400'}`}>
-                        {n.actionDone === 'accepted' ? '✓ Request accepted' : '✗ Request declined'}
+                        {n.actionDone === 'accepted' ? '✓ Now friends!' : '✗ Request declined'}
                       </p>
                     )}
                   </div>

@@ -10,12 +10,17 @@ export function AuthProvider({ children }) {
   const loadUser = useCallback(async () => {
     const token = localStorage.getItem('accessToken');
     if (!token) { setLoading(false); return; }
+    // Show cached user immediately so avatar doesnt flash on reload
+    const cached = localStorage.getItem('user');
+    if (cached) { try { setUser(JSON.parse(cached)); } catch {} }
     try {
       const data = await userApi.getMe();
       setUser(data.user);
+      localStorage.setItem('user', JSON.stringify(data.user));
     } catch {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
     } finally {
       setLoading(false);
     }
@@ -25,24 +30,28 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const data = await authApi.login({ email, password });
+    if (data.error) throw new Error(data.error);
     if (!data.accessToken) throw new Error('Login failed — no token received');
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
+    localStorage.setItem('user', JSON.stringify(data.user));
     setUser(data.user);
     return data.user;
   };
 
   const register = async (formData) => {
     const data = await authApi.register(formData);
-    if (!data.accessToken) throw new Error('Registration failed');
+    if (data.error) throw new Error(data.error);
+    if (!data.accessToken) throw new Error('Registration failed — no token received');
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
+    localStorage.setItem('user', JSON.stringify(data.user));
     setUser(data.user);
     return data.user;
   };
 
   const logout = () => {
-    localStorage.clear();
+    localStorage.clear(); // clears accessToken, refreshToken, user, theme
     setUser(null);
   };
 
@@ -62,6 +71,7 @@ export function AuthProvider({ children }) {
     try {
       const data = await userApi.getMe();
       setUser(data.user);
+      localStorage.setItem('user', JSON.stringify(data.user));
     } catch {}
   };
 
