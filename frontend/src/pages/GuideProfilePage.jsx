@@ -53,6 +53,8 @@ export default function GuideProfilePage() {
     } catch (err) { toast.error(err.message); }
     finally { setSubmittingReply(false); }
   };
+
+  const handleBlacklist = async () => {
     setBlacklisting(true);
     try {
       await adminApi.blacklistUser(guide.userId, { reasonCategory: blacklistReason, customReason: blacklistNote });
