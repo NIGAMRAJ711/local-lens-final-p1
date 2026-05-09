@@ -1,3 +1,4 @@
+/** User routes: current profile, role switching, wallet, guide profile updates, and bucket list. */
 const express = require('express');
 const router = express.Router();
 const { users, guideProfiles, travelerProfiles, walletTransactions } = require('../db');
@@ -64,65 +65,52 @@ router.get('/wallet', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Bucket List ──────────────────────────────────────────────────
-const bucketFile = (uid) => require('path').join(__dirname, '../../data', `bucket_${uid}.json`);
-const loadBucket = (uid) => { try { return JSON.parse(require('fs').readFileSync(bucketFile(uid),'utf8')); } catch { return []; } };
-const saveBucket = (uid, data) => { const fs=require('fs'),path=require('path'); fs.mkdirSync(path.dirname(bucketFile(uid)),{recursive:true}); fs.writeFileSync(bucketFile(uid), JSON.stringify(data,null,2)); };
 
+// ─── Bucket List ──────────────────────────────────────────────────────────────
 router.get('/bucket-list', protect, async (req, res) => {
   try {
-    const { USE_PG, query } = require('../db');
-    if (USE_PG) {
-      await query(`CREATE TABLE IF NOT EXISTS bucket_list(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,city TEXT NOT NULL,description TEXT DEFAULT '',is_completed BOOLEAN DEFAULT false,completed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
+    if (require('../db').USE_PG) {
+      const { query } = require('../db');
       const rows = await query('SELECT * FROM bucket_list WHERE user_id=$1 ORDER BY is_completed ASC, created_at DESC', [req.user.id]);
       return res.json({ items: rows.map(r => ({ id:r.id, city:r.city, description:r.description, isCompleted:r.is_completed, completedAt:r.completed_at, createdAt:r.created_at })) });
     }
-    res.json({ items: loadBucket(req.user.id) });
+    res.json({ items: [] });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/bucket-list', protect, async (req, res) => {
   try {
     const { city, description } = req.body;
-    if (!city) return res.status(400).json({ error: 'City is required' });
-    const { v4: uuid } = require('uuid');
-    const id = uuid();
-    const { USE_PG, query } = require('../db');
-    if (USE_PG) {
-      await query(`CREATE TABLE IF NOT EXISTS bucket_list(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id) ON DELETE CASCADE,city TEXT NOT NULL,description TEXT DEFAULT '',is_completed BOOLEAN DEFAULT false,completed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
-      await query('INSERT INTO bucket_list(id,user_id,city,description) VALUES($1,$2,$3,$4)', [id, req.user.id, city, description || '']);
-      return res.status(201).json({ item: { id, city, description: description||'', isCompleted:false, createdAt: new Date().toISOString() } });
+    if (!city) return res.status(400).json({ error: 'City required' });
+    if (require('../db').USE_PG) {
+      const { query } = require('../db');
+      const { v4: uuidv4 } = require('uuid');
+      const id = uuidv4();
+      await query('INSERT INTO bucket_list(id,user_id,city,description) VALUES($1,$2,$3,$4)', [id, req.user.id, city, description||'']);
+      const row = (await query('SELECT * FROM bucket_list WHERE id=$1', [id]))[0];
+      return res.status(201).json({ item: { id:row.id, city:row.city, description:row.description, isCompleted:row.is_completed, createdAt:row.created_at } });
     }
-    const item = { id, userId: req.user.id, city, description: description||'', isCompleted: false, createdAt: new Date().toISOString() };
-    const bucket = loadBucket(req.user.id); bucket.push(item); saveBucket(req.user.id, bucket);
-    res.status(201).json({ item });
+    res.status(201).json({ item: { id: Date.now().toString(), city, description: description||'', isCompleted: false, createdAt: new Date().toISOString() } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.patch('/bucket-list/:id/complete', protect, async (req, res) => {
   try {
-    const { USE_PG, query } = require('../db');
-    if (USE_PG) {
-      const rows = await query('UPDATE bucket_list SET is_completed=true,completed_at=NOW() WHERE id=$1 AND user_id=$2 RETURNING *', [req.params.id, req.user.id]);
-      return res.json({ item: rows[0] });
+    if (require('../db').USE_PG) {
+      const { query } = require('../db');
+      await query('UPDATE bucket_list SET is_completed=true,completed_at=NOW() WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
     }
-    const bucket = loadBucket(req.user.id);
-    const idx = bucket.findIndex(i => i.id === req.params.id);
-    if (idx !== -1) { bucket[idx].isCompleted = true; bucket[idx].completedAt = new Date().toISOString(); saveBucket(req.user.id, bucket); }
-    res.json({ item: bucket[idx] });
+    res.json({ message: 'Marked complete' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/bucket-list/:id', protect, async (req, res) => {
   try {
-    const { USE_PG, query } = require('../db');
-    if (USE_PG) {
+    if (require('../db').USE_PG) {
+      const { query } = require('../db');
       await query('DELETE FROM bucket_list WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
-      return res.json({ success: true });
     }
-    const bucket = loadBucket(req.user.id);
-    saveBucket(req.user.id, bucket.filter(i => i.id !== req.params.id));
-    res.json({ success: true });
+    res.json({ message: 'Deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

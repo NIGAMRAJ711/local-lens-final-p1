@@ -2,33 +2,61 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useState, useEffect } from 'react';
-import { notificationApi } from '../../lib/api';
+import { bookingApi, notificationApi, api } from '../../lib/api';
+import { useSocket } from '../../context/SocketContext';
 import {
   Home, Compass, Users, Film, Map, MessageCircle, Bell, User,
-  Settings, LogOut, Globe, UserCheck, Menu, X, Plus, ArrowRightLeft, Moon, Sun
+  Settings, LogOut, Globe, UserCheck, Menu, X, Plus, ArrowRightLeft,
+  Moon, Sun
 } from 'lucide-react';
 
 export default function Layout({ children, title }) {
   const { user, logout, switchRole, refreshUser } = useAuth();
   const toast = useToast();
+  const { socket } = useSocket();
   const location = useLocation();
   const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
+
+  const [menuOpen, setMenuOpen] = useState(false);     // avatar dropdown (desktop)
+  const [mobileOpen, setMobileOpen] = useState(false); // mobile nav sheet
   const [unreadCount, setUnreadCount] = useState(0);
   const [switching, setSwitching] = useState(false);
-  const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark');
+  const [dark, setDark] = useState(false);
+  const [activeBooking, setActiveBooking] = useState(null);
 
+  // Apply saved theme on mount
   useEffect(() => {
-    if (isDark) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
-  }, [isDark]);
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') {
+      document.documentElement.classList.add('dark');
+      setDark(true);
+    }
+  }, []);
 
+  // Fetch unread notifications
   useEffect(() => {
     notificationApi.getAll().then(d => {
       setUnreadCount(d.notifications?.filter(n => !n.isRead).length || 0);
     }).catch(() => {});
   }, [location.pathname]);
+
+  useEffect(() => {
+    bookingApi.getMyBookings({}).then(d => {
+      setActiveBooking((d.bookings || []).find(b => b.status === 'CONFIRMED') || null);
+    }).catch(() => {});
+  }, [location.pathname]);
+
+  const toggleDark = () => {
+    const next = !dark;
+    setDark(next);
+    if (next) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  };
 
   const isGuide = user?.role === 'GUIDE' || user?.role === 'BOTH';
   const isInGuideDashboard = location.pathname === '/guide-dashboard';
@@ -69,18 +97,42 @@ export default function Layout({ children, title }) {
     }
   };
 
+  const handleSOS = () => {
+    if (!activeBooking) return;
+    if (!navigator.geolocation) {
+      toast.error('Location is not available in this browser');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const payload = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          bookingId: activeBooking.id,
+          message: 'Emergency SOS from active booking',
+        };
+        await api.post('/sos', payload);
+        socket?.emit('sos:triggered', payload);
+        toast.success('Emergency alert sent. Help is on the way.');
+      } catch (err) {
+        toast.error(err.message || 'Failed to send SOS');
+      }
+    }, () => toast.error('Location access denied'));
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Top Nav */}
+      {/* ── Top Nav ──────────────────────────────────────────────── */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
+
           {/* Logo */}
           <Link to="/dashboard" className="flex items-center gap-2 font-bold text-green-600 text-lg flex-shrink-0">
             <Globe className="w-5 h-5" />
             LocalLens
           </Link>
 
-          {/* Desktop nav */}
+          {/* Desktop nav links */}
           <div className="hidden md:flex items-center gap-1">
             {navItems.map(item => (
               <Link
@@ -98,12 +150,19 @@ export default function Layout({ children, title }) {
             ))}
           </div>
 
-          {/* Right side */}
-          <div className="flex items-center gap-2">
+          {/* Right side controls */}
+          <div className="flex items-center gap-1">
+
             {/* Dark mode toggle */}
-            <button onClick={() => setIsDark(d => !d)}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition" title="Toggle dark mode">
-              {isDark ? <Sun className="w-5 h-5 text-yellow-400" /> : <Moon className="w-5 h-5 text-gray-600" />}
+            <button
+              onClick={toggleDark}
+              className="p-2 rounded-lg hover:bg-gray-100 transition"
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {dark
+                ? <Sun className="w-5 h-5 text-yellow-400" />
+                : <Moon className="w-5 h-5 text-gray-600" />
+              }
             </button>
 
             {/* Notifications */}
@@ -116,24 +175,23 @@ export default function Layout({ children, title }) {
               )}
             </Link>
 
-            {/* Role switch button */}
+            {/* Role switch — desktop only */}
             {isGuide && (
               <button
                 onClick={handleRoleSwitch}
                 disabled={switching}
                 className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-green-500 text-green-600 hover:bg-green-50 transition-colors disabled:opacity-50"
               >
-                {switching ? (
-                  <div className="animate-spin w-3.5 h-3.5 border-2 border-green-500 border-t-transparent rounded-full" />
-                ) : (
-                  <ArrowRightLeft className="w-3.5 h-3.5" />
-                )}
+                {switching
+                  ? <div className="animate-spin w-3.5 h-3.5 border-2 border-green-500 border-t-transparent rounded-full" />
+                  : <ArrowRightLeft className="w-3.5 h-3.5" />
+                }
                 {isInGuideDashboard ? 'Traveller Mode' : 'Guide Mode'}
               </button>
             )}
 
-            {/* Avatar dropdown */}
-            <div className="relative">
+            {/* Avatar dropdown — desktop */}
+            <div className="relative hidden md:block">
               <button
                 onClick={() => setMenuOpen(!menuOpen)}
                 className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-100 transition"
@@ -151,7 +209,6 @@ export default function Layout({ children, title }) {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                   <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-50">
-                    {/* User info */}
                     <div className="px-4 py-2 border-b border-gray-100">
                       <p className="text-sm font-semibold text-gray-900 truncate">{user?.fullName}</p>
                       <p className="text-xs text-gray-500 truncate">{user?.email}</p>
@@ -200,53 +257,118 @@ export default function Layout({ children, title }) {
               )}
             </div>
 
-            {/* Mobile menu button */}
+            {/* Hamburger — mobile only */}
             <button
-              onClick={() => setMenuOpen(!menuOpen)}
+              onClick={() => setMobileOpen(!mobileOpen)}
               className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition"
+              aria-label="Toggle menu"
             >
-              {menuOpen ? <X className="w-5 h-5 text-gray-600" /> : <Menu className="w-5 h-5 text-gray-600" />}
+              {mobileOpen ? <X className="w-5 h-5 text-gray-600" /> : <Menu className="w-5 h-5 text-gray-600" />}
             </button>
           </div>
         </div>
+      </header>
 
-        {/* Mobile nav — fixed below header, not overlapping it */}
-        {menuOpen && (
-          <>
-            <div className="fixed inset-0 z-30" style={{ top: 56 }} onClick={() => setMenuOpen(false)} />
-            <div className="fixed left-0 right-0 z-40 md:hidden bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 shadow-lg px-4 py-3 flex flex-wrap gap-1" style={{ top: 56 }}>
+      {/* ── Mobile slide-down menu — renders BELOW header, never overlaps it ── */}
+      {mobileOpen && (
+        <>
+          {/* backdrop */}
+          <div
+            className="fixed inset-0 z-30 bg-black/20"
+            style={{ top: 56 }}
+            onClick={() => setMobileOpen(false)}
+          />
+          {/* sheet */}
+          <div
+            className="fixed left-0 right-0 z-40 bg-white border-b border-gray-200 shadow-lg"
+            style={{ top: 56 }}
+          >
+            {/* Nav links */}
+            <div className="px-4 py-3 flex flex-wrap gap-1 border-b border-gray-100">
               {navItems.map(item => (
                 <Link
                   key={item.path}
                   to={item.path}
-                  onClick={() => setMenuOpen(false)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    location.pathname === item.path ? 'bg-green-100 text-green-700' : 'text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700'
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    location.pathname === item.path ? 'bg-green-100 text-green-700' : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
                   <item.icon className="w-4 h-4" />
                   {item.label}
                 </Link>
               ))}
-              {isGuide && (
+            </div>
+
+            {/* Account links */}
+            <div className="px-4 py-2">
+              <div className="flex items-center gap-3 py-2 border-b border-gray-100 mb-1">
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} className="w-8 h-8 rounded-full object-cover" alt="" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-sm font-bold">
+                    {user?.fullName?.[0]?.toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{user?.fullName}</p>
+                  <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                </div>
+              </div>
+
+              <Link to="/profile" onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 py-2.5 text-sm text-gray-700">
+                <User className="w-4 h-4 text-gray-400" /> My Profile
+              </Link>
+              <Link to="/friends" onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 py-2.5 text-sm text-gray-700">
+                <UserCheck className="w-4 h-4 text-gray-400" /> Friends
+              </Link>
+              <Link to="/settings" onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 py-2.5 text-sm text-gray-700">
+                <Settings className="w-4 h-4 text-gray-400" /> Settings
+              </Link>
+
+              {isGuide ? (
                 <button
-                  onClick={() => { handleRoleSwitch(); setMenuOpen(false); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-green-600 border border-green-200"
+                  onClick={() => { handleRoleSwitch(); setMobileOpen(false); }}
+                  className="flex items-center gap-2 py-2.5 text-sm text-green-600 w-full"
                 >
                   <ArrowRightLeft className="w-4 h-4" />
-                  {isInGuideDashboard ? 'Traveller' : 'Guide Mode'}
+                  {isInGuideDashboard ? 'Switch to Traveller' : 'Switch to Guide'}
                 </button>
+              ) : (
+                <Link to="/become-guide" onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-2 py-2.5 text-sm text-orange-600">
+                  <Plus className="w-4 h-4" /> Become a Guide
+                </Link>
               )}
-            </div>
-          </>
-        )}
-      </header>
 
-      {/* Main Content */}
+              <button
+                onClick={() => { logout(); navigate('/login'); setMobileOpen(false); }}
+                className="flex items-center gap-2 py-2.5 text-sm text-red-600 w-full"
+              >
+                <LogOut className="w-4 h-4" /> Log Out
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Main content ─────────────────────────────────────────── */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
         {title && <h1 className="text-2xl font-bold text-gray-900 mb-6">{title}</h1>}
         {children}
       </main>
+      {activeBooking && (
+        <button
+          onClick={handleSOS}
+          className="fixed bottom-20 right-4 z-50 bg-red-600 hover:bg-red-700 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg animate-pulse font-black"
+          title="Emergency SOS"
+        >
+          SOS
+        </button>
+      )}
     </div>
   );
 }

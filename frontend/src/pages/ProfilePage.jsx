@@ -21,24 +21,22 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(user?.avatarUrl || '');
-  const [showOnlineRing, setShowOnlineRing] = useState(true);
 
   const handlePhotoSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!file || !file.type.startsWith('image/')) return;
+    // Show preview immediately
+    const reader = new FileReader();
+    reader.onload = (ev) => setPreviewUrl(ev.target.result);
+    reader.readAsDataURL(file);
 
     setUploadingPhoto(true);
     try {
       const data = await uploadApi.image(file);
-      const cloudinaryUrl = data.url; // permanent Cloudinary URL only
-      // Immediately persist to backend — no waiting for "Save"
-      await userApi.updateMe({ ...form, avatarUrl: cloudinaryUrl });
-      setForm(f => ({ ...f, avatarUrl: cloudinaryUrl }));
-      setPreviewUrl(cloudinaryUrl);
-      await refreshUser();
-      toast.success('Profile photo updated!');
+      setForm(f => ({ ...f, avatarUrl: data.url }));
+      setPreviewUrl(data.url);
+      toast.success('Photo uploaded! Click Save to apply.');
     } catch (err) {
       toast.error('Photo upload failed: ' + err.message);
       setPreviewUrl(user?.avatarUrl || '');
@@ -50,8 +48,8 @@ export default function ProfilePage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const data = await userApi.updateMe(form);
-      updateUser(data.user);
+      await userApi.updateMe(form);
+      await refreshUser(); // always re-fetch from server so avatarUrl is fresh
       setEditing(false);
       toast.success('Profile updated successfully!');
     } catch (err) {
@@ -77,16 +75,14 @@ export default function ProfilePage() {
           {/* Avatar section */}
           <div className="flex items-start gap-5 mb-6">
             <div className="relative flex-shrink-0">
-              {/* Green online ring behind the profile picture */}
-              <div className={`absolute -inset-1.5 rounded-2xl transition-all duration-300 ${showOnlineRing ? 'bg-gradient-to-br from-green-400 to-emerald-500 shadow-lg shadow-green-200' : 'bg-transparent'}`} />
               {displayAvatar ? (
                 <img
                   src={displayAvatar}
                   alt="Profile"
-                  className="relative w-24 h-24 rounded-2xl object-cover border-4 border-white shadow-sm"
+                  className="w-24 h-24 rounded-2xl object-cover border-4 border-gray-100 shadow-sm"
                 />
               ) : (
-                <div className="relative w-24 h-24 rounded-2xl bg-gray-200 flex items-center justify-center text-3xl font-bold text-gray-600 border-4 border-white shadow-sm">
+                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-3xl font-bold text-white border-4 border-gray-100 shadow-sm">
                   {user?.fullName?.[0]?.toUpperCase()}
                 </div>
               )}
@@ -110,12 +106,6 @@ export default function ProfilePage() {
                 accept="image/*"
                 onChange={handlePhotoSelect}
                 className="hidden"
-              />
-              {/* Toggle green online ring */}
-              <button
-                onClick={() => setShowOnlineRing(v => !v)}
-                title={showOnlineRing ? 'Hide online ring' : 'Show online ring'}
-                className={`absolute -top-2 -right-2 w-6 h-6 rounded-full border-2 border-white shadow transition-all ${showOnlineRing ? 'bg-green-500' : 'bg-gray-300'}`}
               />
             </div>
 

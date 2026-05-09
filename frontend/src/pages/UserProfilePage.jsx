@@ -79,17 +79,13 @@ export default function UserProfilePage() {
 
         <div className="px-6 pb-5">
           <div className="flex items-end gap-4 -mt-14 mb-4">
-            <div className="relative">
-              {/* Green online ring behind avatar */}
-              <div className="absolute -inset-1.5 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 shadow-lg shadow-green-200" />
-              {profile.avatarUrl ? (
-                <img src={profile.avatarUrl} className="relative w-24 h-24 rounded-full border-4 border-white shadow-lg object-cover" alt="" />
-              ) : (
-                <div className="relative w-24 h-24 rounded-full border-4 border-white shadow-lg bg-gray-200 flex items-center justify-center text-3xl font-bold text-gray-600">
-                  {profile.fullName?.[0]}
-                </div>
-              )}
-            </div>
+            {profile.avatarUrl ? (
+              <img src={profile.avatarUrl} className="w-24 h-24 rounded-full border-4 border-white shadow-lg object-cover" alt="" />
+            ) : (
+              <div className="w-24 h-24 rounded-full border-4 border-white shadow-lg bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-3xl font-bold text-white">
+                {profile.fullName?.[0]}
+              </div>
+            )}
 
             <div className="flex-1 pb-1">
               <div className="flex items-start justify-between flex-wrap gap-2">

@@ -1,3 +1,4 @@
+/** Upload routes: image and video uploads via Cloudinary or local fallback. */
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -9,7 +10,8 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
   fileFilter: (req, file, cb) => {
     const allowed = /jpeg|jpg|png|gif|webp|mp4|mov|webm/;
-    if (allowed.test(file.originalname.toLowerCase().split('.').pop()) || allowed.test(file.mimetype)) cb(null, true);
+    const ext = file.originalname.split('.').pop().toLowerCase();
+    if (allowed.test(ext)) cb(null, true);
     else cb(new Error('Only images and videos are allowed'));
   },
 });
@@ -27,29 +29,41 @@ function getCloudinary() {
   return cloudinary;
 }
 
-function uploadBuffer(cloudinary, buffer, options) {
+function uploadToCloudinary(cloudinary, buffer, options) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(options, (err, result) => {
-      if (err) reject(err); else resolve(result);
+      if (err) reject(err);
+      else resolve(result);
     });
     stream.end(buffer);
   });
+}
+
+// Detect upload folder from request path hint (passed as query param)
+function getImageFolder(req) {
+  const hint = req.query.folder;
+  if (hint === 'cover') return 'locallens/covers';
+  if (hint === 'thumb') return 'locallens/reels/thumbs';
+  return 'locallens/avatars';
 }
 
 // POST /api/upload/image
 router.post('/image', protect, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
     const cloudinary = getCloudinary();
-    if (!cloudinary) return res.status(500).json({ error: 'Media storage not configured. Set Cloudinary env vars.' });
+    if (!cloudinary) {
+      return res.status(500).json({ error: 'Media storage not configured. Set Cloudinary env vars.' });
+    }
 
-    // Choose folder based on hint header or default to avatars
-    const hint = req.headers['x-upload-hint'] || 'avatar';
-    const folder = hint === 'cover' ? 'locallens/covers'
-      : hint === 'thumb' ? 'locallens/reels/thumbs'
-      : 'locallens/avatars';
+    const folder = getImageFolder(req);
+    const result = await uploadToCloudinary(cloudinary, req.file.buffer, {
+      folder,
+      resource_type: 'image',
+      transformation: [{ quality: 'auto', fetch_format: 'auto' }],
+    });
 
-    const result = await uploadBuffer(cloudinary, req.file.buffer, { folder, resource_type: 'image' });
     res.json({ url: result.secure_url, publicId: result.public_id });
   } catch (err) {
     res.status(500).json({ error: 'Upload failed: ' + err.message });
@@ -60,16 +74,22 @@ router.post('/image', protect, upload.single('file'), async (req, res) => {
 router.post('/video', protect, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const cloudinary = getCloudinary();
-    if (!cloudinary) return res.status(500).json({ error: 'Media storage not configured. Set Cloudinary env vars.' });
 
-    const result = await uploadBuffer(cloudinary, req.file.buffer, {
+    const cloudinary = getCloudinary();
+    if (!cloudinary) {
+      return res.status(500).json({ error: 'Media storage not configured. Set Cloudinary env vars.' });
+    }
+
+    const result = await uploadToCloudinary(cloudinary, req.file.buffer, {
       folder: 'locallens/reels',
       resource_type: 'video',
     });
+
+    // Auto-generate thumbnail from first frame
     const thumbnailUrl = result.secure_url
-      .replace('/upload/', '/upload/so_0,f_jpg/')
+      .replace('/upload/', '/upload/so_0,f_jpg,q_auto/')
       .replace(/\.[^.]+$/, '.jpg');
+
     res.json({ url: result.secure_url, thumbnailUrl });
   } catch (err) {
     res.status(500).json({ error: 'Upload failed: ' + err.message });

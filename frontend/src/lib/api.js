@@ -1,11 +1,27 @@
 // Auto-detect API base URL
 // In dev: Vite proxy handles /api → localhost:5001
 // In production: Use VITE_API_URL or same origin
-const API_BASE = import.meta.env.VITE_API_URL
-  ? import.meta.env.VITE_API_URL + '/api'
-  : '/api';
+const DEFAULT_RENDER_API_ORIGIN = 'https://local-lens-finalbackend.onrender.com';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || '';
+function trimSlash(value = '') {
+  return value.replace(/\/+$/, '');
+}
+
+function getConfiguredApiOrigin() {
+  const configured = trimSlash(import.meta.env.VITE_API_URL || '');
+  if (configured) return configured.endsWith('/api') ? configured.slice(0, -4) : configured;
+
+  if (typeof window !== 'undefined') {
+    const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (!isLocal) return DEFAULT_RENDER_API_ORIGIN;
+  }
+
+  return '';
+}
+
+const API_ORIGIN = getConfiguredApiOrigin();
+const API_BASE = API_ORIGIN ? `${API_ORIGIN}/api` : '/api';
+const SOCKET_URL = API_ORIGIN;
 
 export { SOCKET_URL };
 
@@ -21,17 +37,21 @@ class ApiClient {
   }
 
   async request(method, path, body = null, isFormData = false) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const options = {
       method,
       headers: this.getHeaders(isFormData),
       credentials: 'include',
+      signal: controller.signal,
     };
     if (body) options.body = isFormData ? body : JSON.stringify(body);
 
     try {
       const res = await fetch(`${this.base}${path}`, options);
+      clearTimeout(timeout);
 
-      if (res.status === 401) {
+      if (res.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
         const refreshed = await this.refreshToken();
         if (refreshed) {
           options.headers = this.getHeaders(isFormData);
@@ -42,16 +62,28 @@ class ApiClient {
           }
           return retryRes.json();
         } else {
-          localStorage.clear();
-          window.location.href = '/login';
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user');
+          if (window.location.pathname !== '/login') window.location.href = '/login';
           return;
         }
       }
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      if (!res.ok) {
+        if (res.status === 401 && path === '/auth/login') {
+          throw new Error(data.error || 'Invalid email or password');
+        }
+        if (res.status === 404) {
+          throw new Error(data.error || 'Server endpoint not found. Please check the backend URL.');
+        }
+        throw new Error(data.error || data.message || `Request failed (${res.status})`);
+      }
       return data;
     } catch (err) {
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') throw new Error('Request timed out. Please try again.');
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         throw new Error('Cannot connect to server. Please check your connection.');
       }
@@ -95,6 +127,7 @@ export const api = new ApiClient();
 export const authApi = {
   register: (d) => api.post('/auth/register', d),
   login: (d) => api.post('/auth/login', d),
+  logout: () => api.post('/auth/logout', {}),
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
 };
@@ -111,12 +144,17 @@ export const userApi = {
 // Guides
 export const guideApi = {
   search: (params) => api.get('/guides?' + new URLSearchParams(params).toString()),
+  recommend: () => api.get('/guides/recommend'),
   getById: (id) => api.get(`/guides/${id}`),
   register: (d) => api.post('/guides/register', d),
   updateAvailability: (isAvailable) => api.patch('/guides/availability', { isAvailable }),
   updateLocation: (lat, lng) => api.patch('/guides/location', { latitude: lat, longitude: lng }),
   addHiddenGem: (d) => api.post('/guides/hidden-gems', d),
   getDashboardStats: () => api.get('/guides/dashboard/stats'),
+  updateCoverImage: (coverImage) => api.patch('/guides/cover-image', { coverImage }),
+  getAvailability: (guideId) => api.get(`/guides/${guideId}/availability`),
+  addAvailabilitySlot: (data) => api.post('/guides/availability', data),
+  deleteAvailabilitySlot: (id) => api.delete(`/guides/availability/${id}`),
 };
 
 // Bookings
@@ -125,25 +163,7 @@ export const bookingApi = {
   getMyBookings: (params) => api.get('/bookings/my?' + new URLSearchParams(params).toString()),
   updateStatus: (id, status) => api.patch(`/bookings/${id}/status`, { status }),
   complete: (id) => api.patch(`/bookings/${id}/complete`),
-  cancel: (id) => api.patch(`/bookings/${id}/cancel`),
   reject: (id, reason) => api.patch(`/bookings/${id}/reject`, { reason }),
-};
-
-export const availabilityApi = {
-  getSlots: (guideId) => api.get(`/guides/${guideId}/availability`),
-  addSlot: (data) => api.post('/guides/availability', data),
-  deleteSlot: (id) => api.delete(`/guides/availability/${id}`),
-};
-
-export const bucketListApi = {
-  get: () => api.get('/users/bucket-list'),
-  add: (data) => api.post('/users/bucket-list', data),
-  complete: (id) => api.patch(`/users/bucket-list/${id}/complete`),
-  remove: (id) => api.delete(`/users/bucket-list/${id}`),
-};
-
-export const reviewsApi = {
-  respond: (id, response) => api.patch(`/reviews/${id}/respond`, { response }),
 };
 
 // Reels
@@ -152,6 +172,8 @@ export const reelApi = {
   upload: (d) => api.post('/reels', d),
   like: (id) => api.post(`/reels/${id}/like`),
   view: (id) => api.post(`/reels/${id}/view`),
+  getComments: (id) => api.get(`/reels/${id}/comments`),
+  comment: (id, content) => api.post(`/reels/${id}/comment`, { content }),
 };
 
 // Group Tours
@@ -172,14 +194,14 @@ export const mapApi = {
 // Reviews
 export const reviewApi = {
   submit: (d) => api.post('/reviews', d),
+  create: (d) => api.post('/reviews', d),
+  respond: (id, response) => api.patch(`/reviews/${id}/respond`, { response }),
 };
 
 // Chat
 export const chatApi = {
-  // Booking chat (preserved)
   getMessages: (bookingId) => api.get(`/chat/${bookingId}`),
   send: (bookingId, content, receiverId) => api.post(`/chat/${bookingId}`, { content, receiverId }),
-  // Direct chat
   getInbox: () => api.get('/chat/inbox'),
   getContacts: () => api.get('/chat/contacts'),
   getConversation: (userId) => api.get(`/chat/dm/${userId}`),
@@ -213,9 +235,9 @@ export const uploadApi = {
   video: (file) => api.uploadFile('/upload/video', file),
 };
 
-// Admin
-export const adminApi = {
-  blacklistUser: (userId, data) => api.post(`/admin/blacklist/${userId}`, data),
-  getBlacklist: () => api.get('/admin/blacklist'),
-  removeBlacklist: (userId) => api.delete(`/admin/blacklist/${userId}`),
+export const bucketListApi = {
+  getAll: () => api.get('/users/bucket-list'),
+  add: (data) => api.post('/users/bucket-list', data),
+  complete: (id) => api.patch(`/users/bucket-list/${id}/complete`),
+  remove: (id) => api.delete(`/users/bucket-list/${id}`),
 };

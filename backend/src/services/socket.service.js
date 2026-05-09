@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'locallens-secret-2024';
 
-// Track online users: userId → socketId
+// Track online users: userId → Set of socketIds
 const onlineUsers = new Map();
 
 function setupSocketIO(io) {
@@ -11,7 +11,7 @@ function setupSocketIO(io) {
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
       socket.userId = decoded.userId;
-      socket.data.userId = decoded.userId;
+      socket.data.user = decoded;
       next();
     } catch { next(new Error('Invalid token')); }
   });
@@ -21,43 +21,34 @@ function setupSocketIO(io) {
 
     // Join personal room
     socket.join(`user:${userId}`);
-    onlineUsers.set(userId, socket.id);
 
-    // Broadcast online to all
-    socket.broadcast.emit('user_online', { userId });
+    // Track online
+    if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
+    onlineUsers.get(userId).add(socket.id);
+    io.emit('user_online', { userId });
 
-    // ── Direct message ────────────────────────────────────────────
+    // ── Direct Messages ─────────────────────────────────────────
     socket.on('send_direct_message', async ({ receiverId, content }) => {
       try {
         if (!content?.trim() || !receiverId) return;
-        const { directMessages, users, notifications } = require('../db');
+        const { directMessages, notifications } = require('../db');
         const msg = await directMessages.send(userId, receiverId, content.trim());
-
-        // Get sender info to attach to socket event
-        const sender = await users.findById(userId).catch(() => null);
-
-        // Deliver to receiver
-        io.to(`user:${receiverId}`).emit('direct_message', {
-          ...msg,
-          senderName: sender?.fullName,
-          senderAvatar: sender?.avatarUrl,
-        });
-
+        const payload = {
+          id: msg.id || msg.sender_id,
+          senderId: userId,
+          receiverId,
+          content: msg.content || content.trim(),
+          createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
+          isRead: false,
+          senderName: socket.data.user?.fullName || '',
+          senderAvatar: socket.data.user?.avatarUrl || '',
+        };
+        // Deliver to receiver's room
+        io.to(`user:${receiverId}`).emit('direct_message', payload);
         // Confirm to sender
-        socket.emit('direct_message_sent', msg);
-
-        // Notification if receiver offline
-        if (!onlineUsers.has(receiverId)) {
-          notifications.create({
-            userId: receiverId,
-            title: sender?.fullName || 'Message',
-            body: content.trim().slice(0, 80),
-            type: 'NEW_MESSAGE',
-            data: { senderId: userId, senderName: sender?.fullName },
-          }).catch(() => {});
-        }
+        socket.emit('direct_message_sent', payload);
       } catch (err) {
-        socket.emit('dm_error', { error: 'Failed to send' });
+        socket.emit('chat:error', { error: 'Failed to send' });
       }
     });
 
@@ -70,14 +61,14 @@ function setupSocketIO(io) {
     });
 
     socket.on('typing', ({ receiverId }) => {
-      io.to(`user:${receiverId}`).emit('contact_typing', { userId });
+      io.to(`user:${receiverId}`).emit('user_typing', { userId });
     });
 
     socket.on('stop_typing', ({ receiverId }) => {
-      io.to(`user:${receiverId}`).emit('contact_stop_typing', { userId });
+      io.to(`user:${receiverId}`).emit('user_stop_typing', { userId });
     });
 
-    // ── Booking chat (preserved) ──────────────────────────────────
+    // ── Legacy booking chat ──────────────────────────────────────
     socket.on('chat:join', ({ bookingId }) => {
       if (bookingId) socket.join(`booking:${bookingId}`);
     });
@@ -104,16 +95,43 @@ function setupSocketIO(io) {
     });
 
     // ── Guide location ───────────────────────────────────────────
-    socket.on('guide:location-update', ({ latitude, longitude }) => {
+    socket.on('guide:updateLocation', async ({ latitude, longitude }) => {
+      try {
+        const { guideProfiles } = require('../db');
+        await guideProfiles.updateByUserId(userId, { latitude: parseFloat(latitude), longitude: parseFloat(longitude) });
+      } catch {}
+      socket.broadcast.emit('guide:locationUpdate', { guideId: userId, latitude, longitude, timestamp: new Date() });
+    });
+
+    socket.on('guide:location-update', async ({ latitude, longitude }) => {
+      try {
+        const { guideProfiles } = require('../db');
+        await guideProfiles.updateByUserId(userId, { latitude: parseFloat(latitude), longitude: parseFloat(longitude) });
+      } catch {}
       io.emit('guide:location-updated', { guideId: userId, latitude, longitude });
+      socket.broadcast.emit('guide:locationUpdate', { guideId: userId, latitude, longitude, timestamp: new Date() });
+    });
+
+    socket.on('sos:triggered', (payload) => {
+      socket.broadcast.emit('sos:triggered', { ...payload, userId, timestamp: new Date() });
     });
 
     // ── Disconnect ───────────────────────────────────────────────
     socket.on('disconnect', () => {
-      onlineUsers.delete(userId);
-      socket.broadcast.emit('user_offline', { userId });
+      const sockets = onlineUsers.get(userId);
+      if (sockets) {
+        sockets.delete(socket.id);
+        if (sockets.size === 0) {
+          onlineUsers.delete(userId);
+          io.emit('user_offline', { userId });
+        }
+      }
     });
   });
 }
 
-module.exports = { setupSocketIO, onlineUsers };
+function isUserOnline(userId) {
+  return onlineUsers.has(userId) && onlineUsers.get(userId).size > 0;
+}
+
+module.exports = { setupSocketIO, isUserOnline, onlineUsers };

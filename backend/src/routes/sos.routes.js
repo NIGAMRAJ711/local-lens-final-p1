@@ -1,3 +1,4 @@
+/** SOS routes: emergency alerts from active bookings. */
 const express = require('express');
 const router = express.Router();
 const { sosAlerts, notifications, users } = require('../db');

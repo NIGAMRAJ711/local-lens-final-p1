@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import Layout from '../components/shared/Layout';
-import { notificationApi } from '../lib/api';
+import { notificationApi, friendsApi } from '../lib/api';
 import { api } from '../lib/api';
 import { useToast } from '../context/ToastContext';
-import { Bell, CheckCheck, UserPlus, CheckCircle, X, Star, Upload } from 'lucide-react';
+import { Bell, CheckCheck, UserPlus, CheckCircle, X } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 
 function formatTime(dateStr) {
@@ -17,16 +17,12 @@ const TYPE_ICONS = {
   BOOKING: '📅',
   PAYMENT: '💰',
   REVIEW: '⭐',
-  NEW_REVIEW: '⭐',
   MESSAGE: '💬',
-  NEW_MESSAGE: '💬',
   SOS: '🚨',
   GENERAL: '🔔',
   FOLLOW_REQUEST: '👋',
-  FRIEND_REQUEST: '👋',
+  FRIEND_REQUEST: '👤',
   GROUP_TOUR_JOIN: '👥',
-  GROUP_TOUR_JOINED: '🥳',
-  REVIEW_PROMPT: '⭐',
 };
 
 export default function NotificationsPage() {
@@ -34,12 +30,6 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState({});
-  const [reviewModal, setReviewModal] = useState(null); // { bookingId, revieweeId, guideName }
-  const [reviewRating, setReviewRating] = useState(0);
-  const [reviewHover, setReviewHover] = useState(0);
-  const [reviewComment, setReviewComment] = useState('');
-  const [reviewSubmitting, setReviewSubmitting] = useState(false);
-  const [reviewedNotifs, setReviewedNotifs] = useState(new Set());
 
   useEffect(() => {
     notificationApi.getAll()
@@ -59,30 +49,12 @@ export default function NotificationsPage() {
     toast.success('All notifications marked as read');
   };
 
-  const handleSubmitReview = async () => {
-    if (!reviewRating) { toast.error('Please select a star rating'); return; }
-    setReviewSubmitting(true);
-    try {
-      await api.post('/reviews', {
-        bookingId: reviewModal.bookingId,
-        revieweeId: reviewModal.revieweeId,
-        rating: reviewRating,
-        comment: reviewComment,
-      });
-      toast.success('Review submitted! ⭐', 'Thank you for your feedback');
-      setReviewedNotifs(prev => new Set([...prev, reviewModal.notifId]));
-      markRead(reviewModal.notifId);
-      setReviewModal(null);
-      setReviewRating(0);
-      setReviewComment('');
-    } catch (err) { toast.error(err.message); }
-    finally { setReviewSubmitting(false); }
-  };
-    const requestId = notif.data?.requestId || notif.data?.followId;
-    if (!requestId) return;
+  const handleAcceptFollow = async (notif) => {
+    const followId = notif.data?.followId;
+    if (!followId) return;
     setActionLoading(l => ({ ...l, [notif.id]: 'accepting' }));
     try {
-      await api.patch(`/friends/request/${requestId}/accept`);
+      await friendsApi.acceptRequest(followId);
       markRead(notif.id);
       setNotifications(ns => ns.map(n => n.id === notif.id ? { ...n, isRead: true, actionDone: 'accepted' } : n));
       toast.success('Friend request accepted! 🎉');
@@ -94,11 +66,11 @@ export default function NotificationsPage() {
   };
 
   const handleDeclineFollow = async (notif) => {
-    const requestId = notif.data?.requestId || notif.data?.followId;
-    if (!requestId) return;
+    const followId = notif.data?.followId;
+    if (!followId) return;
     setActionLoading(l => ({ ...l, [notif.id]: 'declining' }));
     try {
-      await api.patch(`/friends/request/${requestId}/decline`);
+      await friendsApi.declineRequest(followId);
       markRead(notif.id);
       setNotifications(ns => ns.map(n => n.id === notif.id ? { ...n, isRead: true, actionDone: 'declined' } : n));
       toast.info('Friend request declined');
@@ -110,6 +82,24 @@ export default function NotificationsPage() {
   };
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  const enablePushNotifications = async () => {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      toast.error('Push notifications are not supported in this browser');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification('LocalLens', {
+        body: "Push notifications enabled! You'll get alerts for bookings and messages.",
+        icon: '/favicon.ico',
+        badge: '/favicon.ico',
+      });
+      localStorage.setItem('pushEnabled', 'true');
+      toast.success('Push notifications enabled');
+    }
+  };
 
   return (
     <Layout title="Notifications">
@@ -127,6 +117,9 @@ export default function NotificationsPage() {
               <CheckCheck className="w-4 h-4" /> Mark all read
             </button>
           )}
+          <button onClick={enablePushNotifications} className="ml-2 text-sm text-gray-700 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
+            Enable Push
+          </button>
         </div>
 
         {loading ? (
@@ -165,7 +158,7 @@ export default function NotificationsPage() {
                     </div>
                     <p className="text-sm text-gray-600 mt-0.5">{n.body}</p>
 
-                    {/* Friend/Follow request actions */}
+                    {/* Follow request actions */}
                     {(n.type === 'FOLLOW_REQUEST' || n.type === 'FRIEND_REQUEST') && !n.actionDone && (
                       <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
                         <button
@@ -190,21 +183,7 @@ export default function NotificationsPage() {
 
                     {(n.type === 'FOLLOW_REQUEST' || n.type === 'FRIEND_REQUEST') && n.actionDone && (
                       <p className={`text-xs mt-2 font-medium ${n.actionDone === 'accepted' ? 'text-green-600' : 'text-gray-400'}`}>
-                        {n.actionDone === 'accepted' ? '✓ Request accepted' : '✗ Request declined'}
-
-                    {/* Review prompt inline button */}
-                    {n.type === 'REVIEW_PROMPT' && !reviewedNotifs.has(n.id) && (
-                      <div className="mt-2">
-                        <button
-                          onClick={() => setReviewModal({ bookingId: n.data?.bookingId, revieweeId: n.data?.revieweeId || n.data?.guideId, guideName: n.data?.guideName, notifId: n.id })}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold text-sm rounded-xl transition">
-                          <Star className="w-4 h-4" /> Write Review
-                        </button>
-                      </div>
-                    )}
-                    {n.type === 'REVIEW_PROMPT' && reviewedNotifs.has(n.id) && (
-                      <p className="text-xs mt-2 font-medium text-green-600">✓ Review submitted</p>
-                    )}
+                        {n.actionDone === 'accepted' ? '✓ Now friends!' : '✗ Request declined'}
                       </p>
                     )}
                   </div>
@@ -214,51 +193,6 @@ export default function NotificationsPage() {
           </div>
         )}
       </div>
-
-      {/* Review Modal */}
-      {reviewModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Rate Your Tour</h2>
-              <button onClick={() => setReviewModal(null)} className="p-2 hover:bg-gray-100 rounded-xl">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            {reviewModal.guideName && <p className="text-sm text-gray-500 mb-4">How was your experience with <span className="font-semibold text-gray-800">{reviewModal.guideName}</span>?</p>}
-
-            {/* Star rating */}
-            <div className="flex justify-center gap-2 mb-5">
-              {[1,2,3,4,5].map(star => (
-                <button key={star} type="button"
-                  onMouseEnter={() => setReviewHover(star)}
-                  onMouseLeave={() => setReviewHover(0)}
-                  onClick={() => setReviewRating(star)}
-                  className="transition-transform hover:scale-110">
-                  <Star className={`w-9 h-9 ${(reviewHover || reviewRating) >= star ? 'fill-yellow-400 text-yellow-400' : 'text-gray-200'}`} />
-                </button>
-              ))}
-            </div>
-            {reviewRating > 0 && (
-              <p className="text-center text-sm font-medium text-yellow-600 -mt-3 mb-4">
-                {['','Terrible 😞','Poor 😕','Okay 😐','Good 😊','Excellent! 🌟'][reviewRating]}
-              </p>
-            )}
-
-            <textarea className="input-field text-sm w-full mb-4" rows={3}
-              placeholder="Tell others about your experience..."
-              value={reviewComment} onChange={e => setReviewComment(e.target.value)} />
-
-            <div className="flex gap-3">
-              <button onClick={() => setReviewModal(null)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={handleSubmitReview} disabled={!reviewRating || reviewSubmitting}
-                className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold transition disabled:opacity-50">
-                {reviewSubmitting ? 'Submitting...' : '⭐ Submit Review'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </Layout>
   );
 }
